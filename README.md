@@ -417,9 +417,10 @@ Production mutations should remain policy-controlled.
 React
 TypeScript
 Material UI
+Vite
 React Router
 TanStack Query
-Axios or Fetch
+Fetch
 ```
 
 ## Core Backend
@@ -546,6 +547,9 @@ Loki
                              ▼                  ▼
                        PostgreSQL            Redis
 ```
+
+Frontend boundaries and browser-to-BFF data flow are documented in
+[docs/architecture/frontend.md](docs/architecture/frontend.md).
 
 ---
 
@@ -1511,13 +1515,21 @@ changeguard/
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
-│   │   ├── components/
-│   │   ├── features/
-│   │   ├── hooks/
+│   │   │   ├── App.tsx
+│   │   │   ├── AppRoutes.tsx
+│   │   │   ├── queryClient.ts
+│   │   │   └── theme.ts
+│   │   ├── components/layout/AppLayout.tsx
+│   │   ├── features/overview/OverviewQuestions.tsx
+│   │   ├── hooks/usePageTitle.ts
 │   │   ├── pages/
-│   │   ├── services/
-│   │   └── types/
+│   │   ├── services/apiClient.ts
+│   │   └── types/navigation.ts
+│   ├── .env.example
+│   ├── README.md
+│   ├── index.html
 │   ├── package.json
+│   ├── vite.config.ts
 │   └── Dockerfile
 │
 ├── backend/
@@ -1555,6 +1567,7 @@ changeguard/
 │
 ├── docs/
 │   ├── architecture/
+│   │   └── frontend.md
 │   ├── adr/
 │   ├── api/
 │   ├── event-catalog/
