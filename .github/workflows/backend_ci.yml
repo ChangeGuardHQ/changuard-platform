@@ -1,0 +1,68 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/backend_ci.yml"
+      - "backend/**"
+  push:
+    paths:
+      - ".github/workflows/backend_ci.yml"
+      - "backend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check for Maven project
+        id: maven-project
+        shell: bash
+        run: |
+          if [[ -f backend/pom.xml ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No backend/pom.xml yet; Maven verification will run once the backend is added."
+          fi
+
+      - name: Set up Java
+        if: steps.maven-project.outputs.available == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Verify backend
+        if: steps.maven-project.outputs.available == 'true'
+        run: mvn --batch-mode --no-transfer-progress -f backend/pom.xml verify
+
+      - name: Upload unit and integration test reports
+        if: always() && steps.maven-project.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/**/target/surefire-reports/
+            backend/**/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Filesystem, secret, and dependency security scan
+        if: steps.maven-project.outputs.available == 'true'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: backend
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"

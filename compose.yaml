@@ -1,0 +1,23 @@
+services:
+  frontend:
+    image: changuard-frontend:0.0.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    init: true
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_API_BASE_URL: /api
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+    networks:
+      - changuard_network
+
+volumes:
+  frontend_node_modules:
+
+networks:
+  changuard_network:

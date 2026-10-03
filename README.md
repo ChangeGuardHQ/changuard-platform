@@ -1484,6 +1484,18 @@ Permanent validation errors should fail fast.
 
 Local development should be possible with Docker Compose.
 
+Run the current frontend from the repository root with:
+
+```sh
+docker compose up --build
+```
+
+Then open <http://localhost:5173>. This starts the frontend only; backend and
+infrastructure containers will be added to Compose as those services are
+implemented. If port 5173 is in use, start it with
+`FRONTEND_PORT=5174 docker compose up --build` and open <http://localhost:5174>.
+Stop the app with `Ctrl+C`, or run `docker compose down`.
+
 Recommended services:
 
 ```text
@@ -1629,6 +1641,15 @@ Docker
 Kubernetes
 Terraform
 ```
+
+GitHub Actions workflows are maintained independently at
+`.github/workflows/frontend_ci.yml` and `.github/workflows/backend_ci.yml`.
+Frontend CI runs lint, unit and integration tests, a production build, an npm
+dependency audit, and a Trivy filesystem/secret/configuration scan when frontend
+files change. Backend CI runs Maven verification (unit tests and configured
+integration tests) on Java 21 and a Trivy filesystem/secret/configuration scan
+when a backend `pom.xml` is present, so it can be enabled as the backend is
+introduced.
 
 ---
 

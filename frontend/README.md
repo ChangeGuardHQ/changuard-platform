@@ -12,6 +12,16 @@ cp .env.example .env.local
 npm run dev
 ```
 
+To run the frontend in Docker from the repository root:
+
+```sh
+docker compose up --build
+```
+
+Open <http://localhost:5173>. The current Compose setup runs the frontend only.
+Set `FRONTEND_PORT` before starting Compose to use a different host port if 5173
+is already in use.
+
 Set `VITE_API_BASE_URL` to the API Gateway / BFF base URL when it is available. The default
 `/api` path is suitable when the frontend is served behind a same-origin reverse proxy.
 
@@ -21,6 +31,7 @@ Set `VITE_API_BASE_URL` to the API Gateway / BFF base URL when it is available. 
 npm run dev        # Start the Vite development server
 npm run typecheck  # Run the TypeScript project checks
 npm run lint       # Run Oxlint
+npm test           # Run unit and integration tests
 npm run build      # Type-check and build production assets
 npm run preview    # Preview the production build locally
 ```
