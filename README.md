@@ -1,1 +1,1 @@
-# changuard_platform
+# changuard-platform
