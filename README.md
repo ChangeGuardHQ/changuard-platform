@@ -1827,6 +1827,9 @@ Build:
 - PR event normalization
 - commit event normalization
 
+Detailed, testable deliverables are tracked in
+[docs/plans/github-repository-integration.md](docs/plans/github-repository-integration.md).
+
 Completion criteria:
 
 - merged PR appears as canonical code event
