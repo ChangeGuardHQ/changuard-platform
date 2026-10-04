@@ -1484,17 +1484,30 @@ Permanent validation errors should fail fast.
 
 Local development should be possible with Docker Compose.
 
-Run the current frontend from the repository root with:
+Run the frontend, Connector Service, and Kafka from the repository root with:
 
 ```sh
 docker compose up --build
 ```
 
-Then open <http://localhost:5173>. This starts the frontend only; backend and
-infrastructure containers will be added to Compose as those services are
-implemented. If port 5173 is in use, start it with
+Then open <http://localhost:5173>. The connector's health endpoint is
+<http://localhost:8081/actuator/health>, and Kafka is available on localhost:9092.
+The [Compose file](docker-compose.yaml) waits for Kafka health before starting
+the connector. If port 5173 is in use, start it with
 `FRONTEND_PORT=5174 docker compose up --build` and open <http://localhost:5174>.
 Stop the app with `Ctrl+C`, or run `docker compose down`.
+
+Set `CONNECTOR_PORT` or `KAFKA_PORT` to change the other host ports. Kafka data is
+retained in a named volume. To start only the connector and its Kafka dependency,
+use `docker compose up --build --wait connector-service`.
+
+Compose builds a [patched Kafka image](backend/docker/kafka/README.md) with
+pinned Jackson and libexpat fixes. Backend CI verifies message production and
+consumption and scans this same image.
+
+The Connector Service can also run separately with Maven. See the
+[backend documentation](backend/README.md) for Java prerequisites, run and test
+commands, configuration, and current webhook behavior.
 
 Recommended services:
 
@@ -1588,7 +1601,7 @@ changeguard/
 │
 ├── scripts/
 │
-├── docker-compose.yml
+├── docker-compose.yaml
 ├── Makefile
 ├── README.md
 └── LICENSE
@@ -1644,12 +1657,42 @@ Terraform
 
 GitHub Actions workflows are maintained independently at
 `.github/workflows/frontend_ci.yml` and `.github/workflows/backend_ci.yml`.
-Frontend CI runs lint, unit and integration tests, a production build, an npm
-dependency audit, and a Trivy filesystem/secret/configuration scan when frontend
-files change. Backend CI runs Maven verification (unit tests and configured
-integration tests) on Java 21 and a Trivy filesystem/secret/configuration scan
-when a backend `pom.xml` is present, so it can be enabled as the backend is
-introduced.
+Frontend CI runs lint, TypeScript checks, all unit and integration tests, and the
+production build. Backend CI runs Maven verification for the standalone
+`backend/services/connector-service` project on Java 21. Both workflows have
+independent CodeQL, dependency/secret/configuration scanning, and container
+build/startup/security checks. Frontend dependency checks also use `npm audit`;
+container scans cover runtime dependencies and operating-system packages.
+HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
+artifacts, and CodeQL findings appear in GitHub code scanning. Actions are
+pinned to commit IDs. Component/workflow/Compose changes trigger checks, with
+weekly runs to refresh security results.
+
+CI runners, runtime images, and tool downloads use explicit versions. GitHub
+Actions references are pinned to commit IDs, and frontend dependencies use
+exact versions matching the lockfile.
+
+| Runtime or CI tool | Pinned version |
+| --- | --- |
+| Ubuntu CI runner | `24.04` |
+| Node.js | `24.21.0` |
+| Eclipse Temurin | `21.0.12.1+1` |
+| Alpine Docker base | `3.24` |
+| Kafka | `4.2.2` (image `4.2.2-security.1`) |
+| Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
+| Kafka libexpat | `2.8.5-r0` |
+| CodeQL bundle | `2.27.1` |
+| Trivy | `0.70.0` |
+| Docker Buildx | `0.37.1` |
+| BuildKit | `0.33.1` |
+| Dockerfile frontend | `1.27.1` |
+
+Image tags are verified against the official
+[Node image definitions](https://github.com/docker-library/official-images/blob/master/library/node)
+and [Temurin image definitions](https://github.com/docker-library/official-images/blob/master/library/eclipse-temurin).
+The build tooling versions follow the
+[Buildx release](https://github.com/docker/buildx/releases/tag/v0.37.1) and
+[BuildKit release](https://github.com/moby/buildkit/releases/tag/v0.33.1).
 
 ---
 

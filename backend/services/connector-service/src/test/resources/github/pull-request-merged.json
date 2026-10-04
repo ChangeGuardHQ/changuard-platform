@@ -1,0 +1,51 @@
+{
+  "action": "closed",
+  "number": 42,
+  "pull_request": {
+    "id": 98765,
+    "number": 42,
+    "state": "closed",
+    "title": "Fix café checkout 🌱",
+    "merged": true,
+    "merged_at": "2026-10-04T12:00:00Z",
+    "merge_commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "user": {
+      "id": 77,
+      "login": "contributor"
+    },
+    "merged_by": {
+      "id": 88,
+      "login": "release-manager"
+    },
+    "head": {
+      "ref": "feature/checkout",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "label": "contributor:feature/checkout"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "repository": {
+    "id": 12345,
+    "name": "example",
+    "full_name": "changeguard/example",
+    "owner": {
+      "id": 99,
+      "login": "changeguard"
+    },
+    "private": true
+  },
+  "installation": {
+    "id": 123
+  },
+  "sender": {
+    "id": 66,
+    "login": "automation-bot"
+  },
+  "organization": {
+    "id": 99,
+    "login": "changeguard"
+  }
+}

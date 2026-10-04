@@ -1,0 +1,58 @@
+# Connector service configuration.
+# Environment variables can override the defaults below for local, staging, and production deployments.
+spring:
+  application:
+    name: connector-service
+
+  kafka:
+    # Kafka broker list used to publish connector events.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    producer:
+      # Wait for all in-sync replicas before acknowledging writes to improve durability.
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false
+
+server:
+  # HTTP port exposed by the connector service.
+  port: ${SERVER_PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+  endpoint:
+    health:
+      # Limit health detail exposure unless the caller is authenticated.
+      show-details: when_authorized
+
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.changeguard.connector: DEBUG
+    org.springframework.kafka: INFO
+    # Spring's development DEBUG logging includes raw webhook request bodies.
+    org.springframework.web: INFO
+    org.apache.kafka: WARN
+
+changeguard:
+  kafka:
+    topics:
+      # Kafka topic that receives code-related events emitted by the connector.
+      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events}
+
+  github:
+    # Shared secret used to validate incoming GitHub webhook signatures.
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:change-me}

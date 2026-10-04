@@ -1,0 +1,9 @@
+8c5623b98f32d5f7e1287ff61ed50e08ab7b11381e991fff89327faabba42261  jackson-core-2.21.7.jar
+1290c2795e93e8a6861a6c4d9ff0d844d32f5ea178362cb2721edf5561e828b1  jackson-databind-2.21.7.jar
+588050148497158cabdc05c0ae3a7e123194a486b8c62745778fc6239f9b085e  jackson-dataformat-csv-2.21.7.jar
+df2b3e6a194181dc067b7211d750926b4ae9e4f3c892a0005b8219a9b59be681  jackson-dataformat-yaml-2.21.7.jar
+b8f62f98363ed9aa259b3a479a64fcbe7e081158a8bec6733972e900d12f4e47  jackson-datatype-jdk8-2.21.7.jar
+202b61a95e735d01ae03e411b8f6ae1245bbf19c87d4746c0204579f5c2e456b  jackson-jakarta-rs-base-2.21.7.jar
+32473ee172e0c181ba63688ee4a94349de77de05bd4279d0846a9515a56bb0fe  jackson-jakarta-rs-json-provider-2.21.7.jar
+b41fb816cbaa5f2393136cf1c525e0d9a9f9bcea14207a09e8e703df53351596  jackson-module-blackbird-2.21.7.jar
+76054ca6e252e7142fec9c0e9a146bd8c43cde13dddf2d1cdaecd9db981c2ddc  jackson-module-jakarta-xmlbind-annotations-2.21.7.jar

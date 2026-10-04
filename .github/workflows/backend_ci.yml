@@ -5,50 +5,51 @@ on:
     paths:
       - ".github/workflows/backend_ci.yml"
       - "backend/**"
+      - "docker-compose.yaml"
   push:
     paths:
       - ".github/workflows/backend_ci.yml"
       - "backend/**"
+      - "docker-compose.yaml"
+  schedule:
+    - cron: "37 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend/services/connector-service
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Check for Maven project
-        id: maven-project
-        shell: bash
-        run: |
-          if [[ -f backend/pom.xml ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "No backend/pom.xml yet; Maven verification will run once the backend is added."
-          fi
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java
-        if: steps.maven-project.outputs.available == 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
           cache: maven
-          cache-dependency-path: backend/pom.xml
+          cache-dependency-path: backend/**/pom.xml
 
       - name: Verify backend
-        if: steps.maven-project.outputs.available == 'true'
-        run: mvn --batch-mode --no-transfer-progress -f backend/pom.xml verify
+        run: sh ./mvnw --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false verify
 
       - name: Upload unit and integration test reports
-        if: always() && steps.maven-project.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-test-reports
           path: |
@@ -57,12 +58,182 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Filesystem, secret, and dependency security scan
-        if: steps.maven-project.outputs.available == 'true'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+  source-security:
+    name: Backend dependency, secret, and configuration scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Scan backend dependencies, secrets, and Docker configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
+          version: v0.70.0
           scan-ref: backend
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
           exit-code: "1"
+          format: json
+          output: backend-filesystem-security.json
+
+      - name: Scan shared infrastructure configuration
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          version: v0.70.0
+          scan-ref: .
+          skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-configuration-security.json
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-source-security
+          path: backend-*-security.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  codeql:
+    name: Backend CodeQL analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
+    defaults:
+      run:
+        working-directory: backend/services/connector-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          languages: java-kotlin
+          tools: https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.1/codeql-bundle-linux64.tar.gz
+          build-mode: manual
+          queries: security-extended
+
+      - name: Build for CodeQL
+        run: sh ./mvnw --batch-mode --no-transfer-progress -DskipTests clean package
+
+      - name: Analyze Java sources
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          category: /language:java-kotlin
+
+  container:
+    name: Backend container build, smoke test, and security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
+      KAFKA_IMAGE: changuard-kafka:4.2.2-security.1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit:v0.33.1
+
+      - name: Build connector image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/services/connector-service
+          load: true
+          push: false
+          tags: changuard-connector-service:ci
+          cache-from: type=gha,scope=connector-service
+          cache-to: type=gha,mode=max,scope=connector-service
+
+      - name: Build patched Kafka image
+        id: kafka-build
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/docker/kafka
+          load: true
+          push: false
+          tags: ${{ env.KAFKA_IMAGE }}
+          cache-from: type=gha,scope=kafka
+          cache-to: type=gha,mode=max,scope=kafka
+
+      - name: Smoke test connector and Kafka
+        run: |
+          docker compose up --no-build --wait --wait-timeout 180 connector-service
+          curl --fail --silent --show-error http://localhost:8081/actuator/health
+          sh backend/docker/kafka/smoke-test.sh
+
+      - name: Scan image OS packages, Java dependencies, and secrets
+        if: always() && steps.build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: changuard-connector-service:ci
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-container-security.json
+
+      - name: Scan Kafka image OS packages, Java dependencies, and secrets
+        if: always() && steps.kafka-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.KAFKA_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-kafka-security.json
+
+      - name: Upload container security report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-container-security
+          path: |
+            backend-container-security.json
+            backend-kafka-security.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Container diagnostics and cleanup
+        if: always()
+        run: |
+          docker compose logs --no-color
+          docker compose down --volumes
