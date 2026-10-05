@@ -45,12 +45,22 @@ state ownership, and the API integration direction.
 
 [Frontend CI](../.github/workflows/frontend_ci.yml) runs lint, TypeScript checks,
 all Vitest unit/integration tests, and the production build. It uploads JUnit
-test reports. Independent jobs run the npm dependency audit, CodeQL with
-extended JavaScript/TypeScript security queries, Trivy dependency/secret/
+test reports. Independent jobs run the npm dependency audit, Semgrep source
+security checks for JavaScript/TypeScript and React, Trivy dependency/secret/
 configuration scans, and the Docker build, HTTP startup check, and image scan.
 The npm audit and Trivy scans fail on HIGH or CRITICAL findings. Security JSON
-reports are uploaded even when a scan fails; CodeQL publishes results to GitHub
-code scanning.
+reports are uploaded even when a scan fails. Semgrep runs on every workflow
+invocation, fails on findings or scanner errors, and retains JSON/SARIF reports
+as `frontend-sast`. Its scanner image and upstream rules are pinned, and the
+scan runs without network access or an account.
+
+CodeQL with extended JavaScript/TypeScript security queries runs automatically
+for public repositories. For a private repository, enable GitHub Code Security
+and set the Actions repository variable `CODEQL_ENABLED` to `true`. Otherwise
+the CodeQL job is skipped while Semgrep and the other security checks still
+run. When enabled, CodeQL publishes findings to GitHub code scanning and retains
+its SARIF report as `frontend-codeql`, including when the results upload fails.
+See the [shared CodeQL setup instructions](../README.md#25-cicd).
 
 Frontend, workflow, and Compose changes trigger checks, and a weekly schedule
 refreshes scans. External actions are pinned to commit IDs. CI and Docker use

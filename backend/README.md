@@ -116,14 +116,24 @@ The [backend CI workflow](../.github/workflows/backend_ci.yml) targets
 `services/connector-service` directly and uses Temurin 21.0.12.1+1 with the Maven
 wrapper on Ubuntu 24.04. The `setup-java` input uses Adoptium's equivalent SemVer
 identifier, `21.0.12+101.0.LTS`, to select that exact release.
-Independent jobs run Maven verification, CodeQL Java analysis with the extended
-security queries, Trivy dependency/secret/configuration scans, and the container
+Independent jobs run Maven verification, Semgrep Java/Spring source security
+scans, Trivy dependency/secret/configuration scans, and the container
 build, Compose startup check, Kafka message smoke test, and connector/Kafka image
 scans. The image scans cover packaged Java dependencies and operating-system
 packages. Trivy fails on HIGH or
 CRITICAL findings, including unfixed vulnerabilities. Test and security reports
-are retained as workflow artifacts; CodeQL publishes findings to GitHub code
-scanning.
+are retained as workflow artifacts. Semgrep runs on every workflow invocation,
+fails on findings or scanner errors, and saves JSON/SARIF reports as
+`backend-sast`. Its scanner image and upstream rules are pinned, and the scan
+runs without network access or an account.
+
+CodeQL Java analysis with the extended security queries runs automatically for
+public repositories. For a private repository, enable GitHub Code Security and
+set the Actions repository variable `CODEQL_ENABLED` to `true`. Otherwise the
+CodeQL job is skipped while Semgrep and the other security checks still run.
+When enabled, CodeQL publishes findings to GitHub code scanning and retains its
+SARIF report as `backend-codeql`, including when the results upload fails. See
+the [shared CodeQL setup instructions](../README.md#25-cicd).
 
 Local validation on October 4, 2026 found no HIGH/CRITICAL findings in the
 connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`

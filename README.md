@@ -1660,13 +1660,35 @@ GitHub Actions workflows are maintained independently at
 Frontend CI runs lint, TypeScript checks, all unit and integration tests, and the
 production build. Backend CI runs Maven verification for the standalone
 `backend/services/connector-service` project on Java 21. Both workflows have
-independent CodeQL, dependency/secret/configuration scanning, and container
+independent Semgrep source scans, dependency/secret/configuration scanning, and container
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.
 HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
-artifacts, and CodeQL findings appear in GitHub code scanning. Actions are
-pinned to commit IDs. Component/workflow/Compose changes trigger checks, with
+artifacts. Semgrep fails on source findings or scanner errors and retains JSON
+and SARIF reports as `backend-sast` and `frontend-sast`. Its scanner image is
+pinned by version and digest, and its Java/Spring and JavaScript/TypeScript/React
+rules are checked out at a fixed upstream commit. Scans run with network access
+disabled and do not require a Semgrep account. Actions are pinned to commit IDs.
+Component/workflow/Compose changes trigger checks, with
 weekly runs to refresh security results.
+
+CodeQL is an additional scan that runs automatically on public repositories.
+For private repositories, GitHub requires
+[GitHub Code Security to be enabled](https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/advanced-security-must-be-enabled).
+To enable the private-repository CodeQL jobs, first enable Code Security under
+repository **Settings → Security and quality → Advanced Security**, then add
+`CODEQL_ENABLED` with value `true` under **Settings → Secrets and variables →
+Actions → Variables**. Leave this variable unset when Code Security is
+unavailable; CodeQL is skipped and Semgrep, dependency, secret, configuration,
+and container scans still run. Disabling SARIF upload alone does not remove
+the [private-repository CodeQL license requirement](https://docs.github.com/en/code-security/concepts/code-scanning/codeql/codeql-cli).
+When enabled, CodeQL publishes findings to GitHub code scanning and saves its
+SARIF files as `backend-codeql` and `frontend-codeql` artifacts, even if the
+results upload fails.
+
+After changing these workflows, commit and push the changes to start a new CI
+run. [Re-running an older run uses its original commit and ref](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
+so it will not pick up a workflow fix from a newer commit.
 
 CI runners, runtime images, and tool downloads use explicit versions. GitHub
 Actions references are pinned to commit IDs, and frontend dependencies use
@@ -1682,6 +1704,8 @@ exact versions matching the lockfile.
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
 | Kafka libexpat | `2.8.5-r0` |
 | CodeQL bundle | `2.27.1` |
+| Semgrep CE | `1.179.0` (image digest pinned) |
+| Semgrep rules | `a84ff9cc2453ca91d581380de4b8b3f272f6f4be` |
 | Trivy | `0.70.0` |
 | Docker Buildx | `0.37.1` |
 | BuildKit | `0.33.1` |
