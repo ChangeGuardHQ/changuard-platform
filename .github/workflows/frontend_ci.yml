@@ -1,4 +1,5 @@
 name: Frontend CI
+# Runs frontend quality checks, security scans, and a container smoke test.
 
 on:
   pull_request:
@@ -23,6 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Validate source changes and retain unit/integration test reports.
   frontend:
     name: Frontend checks
     runs-on: ubuntu-24.04
@@ -72,6 +74,7 @@ jobs:
           retention-days: 7
 
   source-security:
+      # Audit frontend dependencies and scan frontend/shared configuration.
     name: Frontend dependency, secret, and configuration scans
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -132,6 +135,7 @@ jobs:
           retention-days: 7
 
   sast:
+      # Apply pinned Semgrep rules to frontend JavaScript and TypeScript sources.
     name: Frontend source security scan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -185,6 +189,7 @@ jobs:
           retention-days: 7
 
   codeql:
+      # Upload CodeQL findings when repository security features are available.
     name: Frontend CodeQL analysis
     # Private repositories need GitHub Code Security enabled before opting in.
     if: ${{ github.event.repository.visibility == 'public' || vars.CODEQL_ENABLED == 'true' }}
@@ -226,6 +231,7 @@ jobs:
           retention-days: 7
 
   container:
+      # Build, smoke-test, and scan the frontend container image.
     name: Frontend container build, smoke test, and security scan
     runs-on: ubuntu-24.04
     timeout-minutes: 20

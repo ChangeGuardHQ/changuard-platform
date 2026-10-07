@@ -4,6 +4,61 @@ Compose and backend CI build `changuard-kafka:4.2.2-security.1` from this direct
 The base is Apache Kafka 4.2.2, pinned to its multi-platform image digest. The
 broker version, startup configuration, and data-volume format stay at 4.2.2.
 
+## Image build subsystem
+
+**Status: implemented.** The build fetches the pinned Jackson modules in a
+separate stage and verifies each artifact against `SHA256SUMS`. The runtime stage
+patches libexpat, removes replaced JARs and incompatible class-data archives,
+copies verified JARs, and returns to `appuser`. This produces the Kafka image
+used by both Compose and backend CI.
+
+```mermaid
+flowchart LR
+    Manifest["SHA256SUMS and pinned Jackson<br/>version"] --> Downloads["Separate download stage"]
+    Downloads --> Verify["Verify every JAR checksum"]
+    Base["Digest-pinned Apache Kafka<br/>base"] --> Patch["Patch libexpat; remove old<br/>JARs and CDS settings"]
+    Verify -->|"copy verified JARs"| Runtime["Patched runtime as appuser"]
+    Patch --> Runtime
+    Runtime --> Image["changuard-kafka:4.2.2-security.1"]
+    Image --> Compose["Local Compose broker"]
+    Image --> CI["Backend CI smoke test and<br/>image scan"]
+```
+
+## Broker and validation subsystems
+
+**Status: implemented single-node development broker.** The Compose node combines
+KRaft controller and broker roles. Containers use the internal `kafka:9092`
+listener; host clients use `localhost:9092` by default through container port
+29092. The controller listener on 9093 coordinates the node, and `kafka_data`
+retains the log. Listener transport is plaintext in this local stack.
+
+```mermaid
+flowchart LR
+    Container["Container clients"] -->|"kafka:9092"| Internal["INTERNAL listener"]
+    Host["Host clients"] -->|"localhost:9092 mapped to 29092"| External["EXTERNAL listener"]
+    Internal --> Broker["Kafka broker role"]
+    External --> Broker
+    Controller["KRaft controller role / port<br/>9093"] -->|"single-node metadata quorum"| Broker
+    Broker --> Volume[("kafka_data persistent log")]
+```
+
+The smoke test checks a real acknowledged produce/consume round trip, beyond
+broker health. It creates a unique temporary topic, sends one JSON record, reads
+the first record, verifies exact payload equality, and deletes the topic on
+success. Backend CI also scans the resulting runtime image.
+
+```mermaid
+flowchart LR
+    Start["Running Compose broker"] --> Create["Create unique temporary topic"]
+    Create --> Publish["Publish JSON with acks=all"]
+    Publish --> Consume["Consume one record from<br/>beginning"]
+    Consume --> Match{"Payload matches exactly?"}
+    Match -->|"yes"| Delete["Delete topic and pass"]
+    Match -->|"no"| Fail["Fail validation"]
+```
+
+## Dependency patches and operation
+
 The upstream image still contains five HIGH findings as of October 4, 2026.
 This image applies the following stable dependency patches:
 
