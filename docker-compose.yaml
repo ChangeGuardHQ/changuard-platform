@@ -1,4 +1,10 @@
+# ChangeGuard platform local development stack.
+# This Compose file starts the frontend, the connector service, and a single-node Kafka broker.
+# The frontend is served locally on port 5173 by default, and the connector service exposes its API on port 8081.
+
 services:
+  # Frontend application served as a Vite dev server.
+  # Mounts the local frontend source directory so edits are reflected immediately.
   frontend:
     image: changuard-frontend:0.0.0
     build:
@@ -12,10 +18,11 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-
     networks:
       - changuard_network
 
+  # Connector service that consumes Kafka events and exposes the backend API.
+  # It waits for Kafka to become healthy before starting.
   connector-service:
     image: ${CONNECTOR_SERVICE_IMAGE:-changuard-connector-service:0.0.1}
     build:
@@ -42,6 +49,8 @@ services:
     networks:
       - changuard_network
 
+  # Local Kafka broker used for event-driven communication between services.
+  # The container exposes a localhost listener for local clients and an internal listener for service-to-service traffic.
   kafka:
     image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.1}
     build:
@@ -75,9 +84,11 @@ services:
     networks:
       - changuard_network
 
+# Named volumes persist node_modules for the frontend and Kafka data across container restarts.
 volumes:
   frontend_node_modules:
   kafka_data:
 
+# Shared internal Docker network for local service discovery.
 networks:
   changuard_network:

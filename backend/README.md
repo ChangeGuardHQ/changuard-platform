@@ -19,6 +19,41 @@ so requests with the required headers and body currently receive
 `503 Service Unavailable`. The service can start and expose health information
 while that processing implementation is being built.
 
+## Connector system and subsystems
+
+**Status: partial.** The current request path ends at an unavailable processing
+service. The diagram distinguishes that live path from components awaiting
+orchestration. Solid arrows describe the implemented HTTP behavior; dashed arrows
+show planned orchestration or storage connections. The
+[platform service diagrams](../README.md#12-microservice-boundaries) describe the
+downstream Change, Correlation, Audit, Query/BFF, and V2 AI services, all still planned.
+
+```mermaid
+flowchart TD
+    GitHub["GitHub raw delivery"] --> Security["Spring Security route rules"]
+    Security --> Controller["GitHubWebhookController: body<br/>and header validation"]
+    Controller --> Lookup{"GitHubWebhookService bean<br/>available?"}
+    Lookup -->|"no: current application"| Unavailable["503 Service Unavailable"]
+    Lookup -.->|"implementation planned"| Processor["Webhook processing<br/>orchestration"]
+    Processor -.-> HMAC["GitHubSignatureValidator -<br/>implemented"]
+    Processor -.-> Normalizer["GitHubEventNormalizer -<br/>implemented"]
+    Normalizer -.-> Event["CodeChangeMergedEvent -<br/>implemented"]
+    Event -.-> Durable["Receipts / outbox - planned"]
+    Durable -.-> Producer["CodeEventProducer -<br/>implemented"]
+    Producer --> Kafka["Kafka broker"]
+```
+
+| Subsystem | Input and output | Status / detailed diagram |
+| --- | --- | --- |
+| HTTP intake | Raw JSON bytes and GitHub headers → validation status or processor call. | Implemented; [webhook API](#github-webhook-api) |
+| Authenticity | Exact bytes and signature → HMAC validity. | Component implemented; [signature verification](#signature-verification) |
+| Provider normalization | Verified activity → merged-PR DTO, ignored activity, or payload error. | Merged PRs implemented; [normalization](#github-event-normalization) |
+| Canonical contract | DTO and trusted context → version-one event with stable identity. | Implemented; [event factory](#canonical-merged-change-event) |
+| Kafka transport | Canonical event → repository-keyed JSON record and acknowledgement future. | Implemented; [publishing](#code-event-publishing) |
+| Durable orchestration | Verified delivery → persisted receipt and eventual publication. | Planned; [remaining work](#source-map-and-remaining-work) |
+| Access rules and health | HTTP route → public or authenticated access and health/info. | Basic security/health implemented; [security and observability](#security-and-observability) |
+| Container runtime and CI | Source/configuration → runnable service and verification reports. | Implemented; [Docker](#docker-development), [platform CI](../README.md#25-cicd) |
+
 ## Local development
 
 Install a Java 21 JDK and make it available through `JAVA_HOME` or `PATH`. The
@@ -50,6 +85,22 @@ GitHub account. Health does not establish that webhook ingestion or Kafka
 publishing is working.
 
 ## Docker development
+
+**Status: implemented.** Maven builds an executable JAR in the image build stage;
+an unprivileged JRE runs it with externally supplied settings. Compose waits for
+Kafka health, mounts writable temporary storage, and uses an otherwise read-only
+connector filesystem. Startup health does not verify the planned ingestion workflow.
+
+```mermaid
+flowchart LR
+    Source["Java source / pom.xml"] --> Maven["Temurin JDK + Maven wrapper<br/>build"]
+    Maven --> Jar["Executable Spring Boot JAR"]
+    Jar --> Runtime["Unprivileged Temurin JRE<br/>runtime"]
+    Config["Environment: port, brokers,<br/>topic, secret"] --> Runtime
+    Kafka["Compose Kafka health"] -->|"startup dependency"| Runtime
+    Runtime --> HTTP["Port 8081: webhook / Actuator"]
+    Probe["Docker health check"] -->|"GET /actuator/health"| HTTP
+```
 
 The repository's [Compose configuration](../docker-compose.yaml) runs the
 frontend, Connector Service, and a single-node Kafka broker:
@@ -185,6 +236,24 @@ serializer configuration.
 
 ## GitHub event normalization
 
+**Status: implemented for closed, merged pull requests.** Signature verification
+is a caller precondition. Unsupported events and unmerged PRs return an empty
+result; malformed or incomplete supported payloads fail explicitly. The DTO
+retains the actual merge time and full merge commit SHA for later correlation.
+
+```mermaid
+flowchart TD
+    Input["Verified bytes, event type,<br/>delivery ID"] --> Type{"pull_request event?"}
+    Type -->|"no"| Skip["Optional.empty: no canonical<br/>event"]
+    Type -->|"yes"| Parse["Strict local JSON reader"]
+    Parse --> State{"action closed and merged true?"}
+    Parse -->|"malformed JSON / invalid merge<br/>state"| Error["InvalidGitHubPayloadException"]
+    State -->|"no"| Skip
+    State -->|"yes"| Fields["Validate repository / PR / SHA<br/>/ branches / mergedAt"]
+    Fields -->|"invalid required field"| Error
+    Fields --> DTO["GitHubMergedPullRequest DTO"]
+```
+
 [GitHubEventNormalizer](services/connector-service/src/main/java/com/changeguard/connector/normalization/GitHubEventNormalizer.java)
 is a Spring component with this API:
 
@@ -232,6 +301,24 @@ and [pull-request-merged.json](services/connector-service/src/test/resources/git
 
 ## Canonical merged change event
 
+**Status: implemented.** The factory combines the provider DTO with trusted
+organization/integration context and a caller-supplied receipt time. A stable
+event ID identifies a scoped delivery across retries. The actor remains `UNKNOWN`
+when a login is known and absent when no login is available; no actor type is inferred.
+
+```mermaid
+flowchart LR
+    DTO["GitHubMergedPullRequest DTO"] --> Factory["CodeChangeMergedEvent.fromGitHub"]
+    Context["Trusted organizationId /<br/>integrationId"] --> Factory
+    Time["Caller-supplied receivedAt"] --> Factory
+    Factory --> ID["Stable scoped delivery UUID"]
+    Factory --> Event["CodeChangeMerged, version 1"]
+    ID --> Event
+    Event --> Timing["occurredAt: merge time /<br/>receivedAt: intake time"]
+    Event --> Attribution["Source and optional UNKNOWN<br/>actor"]
+    Event --> Payload["Repository, PR, full SHA, and<br/>branches"]
+```
+
 [CodeChangeMergedEvent](services/connector-service/src/main/java/com/changeguard/connector/event/CodeChangeMergedEvent.java)
 is an immutable Java record following the platform's
 [event envelope](../README.md#11-canonical-event-model). Construct it from the
@@ -267,6 +354,22 @@ so embedded separators do not create ambiguous identities.
 
 ## Code event publishing
 
+**Status: implemented transport component; webhook invocation is planned.** The
+producer sends the event using the repository ID as key. Kafka configuration uses
+JSON values, `acks=all`, producer idempotence, and no Java type headers. The
+returned future represents broker acknowledgement or failure; callers must observe
+it. These settings do not provide durable webhook receipt tracking or consumer deduplication.
+
+```mermaid
+flowchart TD
+    Caller["Event caller / future outbox<br/>relay"] --> Producer["CodeEventProducer.publish"]
+    Producer --> Template["KafkaTemplate from<br/>KafkaProducerConfig"]
+    Template --> Serializer["String key / JSON envelope<br/>value"]
+    Serializer --> Topic["CODE_EVENTS_TOPIC: key =<br/>repositoryId"]
+    Topic --> Result["Broker acknowledgement or send<br/>failure"]
+    Result --> Future["CompletableFuture returned to<br/>caller"]
+```
+
 [CodeEventProducer](services/connector-service/src/main/java/com/changeguard/connector/messaging/CodeEventProducer.java)
 is a Spring component with this API:
 
@@ -294,6 +397,25 @@ then handle acknowledgement failures.
 
 ## GitHub webhook API
 
+**Status: implemented adapter with no application processor registered.** Spring
+checks media type, required headers, and body binding; the controller validates
+nonblank metadata and signature syntax. It preserves exact bytes and returns 202
+only after a supplied processor returns normally. The current application follows
+the 503 branch, so neither parsing nor HMAC verification runs from this endpoint yet.
+
+```mermaid
+flowchart TD
+    Request["POST JSON bytes and GitHub<br/>headers"] --> Binding{"Body, media type,<br/>event/delivery present?"}
+    Binding -->|"invalid"| BadRequest["400 missing fields/body; 415<br/>media type"]
+    Binding -->|"valid"| Signature{"sha256= plus 64 hex<br/>characters?"}
+    Signature -->|"no"| Unauthorized["401 Unauthorized"]
+    Signature -->|"yes"| Service{"Processor registered?"}
+    Service -->|"no: current behavior"| Unavailable["503 Service Unavailable"]
+    Service -->|"yes"| Handle["Pass exact bytes to<br/>handleWebhook"]
+    Handle -->|"normal return"| Accepted["202 Accepted, empty response"]
+    Handle -->|"ResponseStatusException"| Rejection["Preserve service rejection<br/>status"]
+```
+
 ```text
 POST /api/v1/integrations/github/webhook
 Content-Type: application/json
@@ -311,6 +433,24 @@ after signature verification.
 
 The controller checks signature syntax. Cryptographic HMAC verification is
 pending in the service implementation.
+
+### Signature verification
+
+**Status: implemented component; processor wiring is planned.** Validation hashes
+the exact body with the configured server-side secret and compares decoded digests
+using `MessageDigest.isEqual`. Malformed signatures fail validation, and an empty
+secret fails initialization. Header syntax alone does not authenticate a delivery.
+
+```mermaid
+flowchart LR
+    Body["Unmodified request bytes"] --> HMAC["HMAC-SHA256"]
+    Secret["Configured webhook secret"] --> HMAC
+    Header["X-Hub-Signature-256"] --> Decode["Validate syntax and decode hex<br/>digest"]
+    HMAC --> Compare["MessageDigest.isEqual"]
+    Decode --> Compare
+    Compare --> Result["Valid / invalid signature"]
+    Result -.-> Processor["Future processor: verify<br/>before parsing"]
+```
 
 `GitHubSignatureValidator.isValid(byte[] payload, String signatureHeader)` hashes
 the unmodified body directly and compares the decoded SHA-256 digests with
@@ -346,6 +486,23 @@ handling; its signature has not been computed from a webhook secret.
 
 ## Security and observability
 
+**Status: implemented development access rules and health/info; platform identity
+and metrics infrastructure are planned.** Only the webhook POST bypasses CSRF;
+other writes retain it. Public health checks support container startup. Other
+routes require stateless HTTP Basic. The configured Prometheus endpoint has no
+registry dependency and is currently unavailable.
+
+```mermaid
+flowchart TD
+    Request["Incoming HTTP request"] --> Route{"Route / dispatch category"}
+    Route -->|"POST GitHub webhook"| Webhook["Public; CSRF exempt; processor<br/>must verify HMAC"]
+    Route -->|"GET health or health subpath"| Health["Public Actuator health"]
+    Route -->|"internal error dispatch"| Error["Permit error response"]
+    Route -->|"other route"| Basic["Require HTTP Basic; CSRF for<br/>writes"]
+    Basic --> Protected["Authenticated application /<br/>info endpoint"]
+    Health --> Detail["Health details only when<br/>authorized"]
+```
+
 [SecurityConfig](services/connector-service/src/main/java/com/changeguard/connector/config/SecurityConfig.java)
 applies these access rules:
 
@@ -377,6 +534,43 @@ Connector package logging is DEBUG; the controller does not log payloads or
 signatures.
 
 ## Source map and remaining work
+
+**Status: planned durable orchestration.** A registered processor must authenticate
+bytes before trusting identifiers, resolve allowed integration/repository scope,
+and durably store supported deliveries before returning. Receipts and canonical
+outbox events commit together; an asynchronous relay publishes and observes broker
+acknowledgement. Provider redelivery and relay retries must retain stable identities.
+This completes intake independently of the downstream timeline projection.
+
+```mermaid
+sequenceDiagram
+    participant Controller
+    participant Processor as Future webhook<br/>processor
+    participant Validator as Signature<br/>validator
+    participant Context as Integration lookup
+    participant Normalizer
+    participant DB as Receipt / outbox<br/>storage
+    participant Relay as Outbox relay
+    participant Kafka
+    Controller->>Processor: Headers and exact body bytes
+    Processor->>Validator: Verify raw-byte HMAC
+    Validator-->>Processor: Validity
+    Processor->>Context: Resolve authorized<br/>installation / repository
+    Processor->>Normalizer: Normalize verified supported<br/>activity
+    Normalizer-->>Processor: Merged PR DTO or ignored<br/>activity
+    alt Supported merged pull request
+        Processor->>DB: Atomically persist dedup<br/>receipt and canonical outbox<br/>event
+        DB-->>Processor: Durable commit
+        Processor-->>Controller: Normal return after durable<br/>intake
+    else Verified unsupported activity
+        Processor-->>Controller: Normal return without a<br/>canonical event
+    end
+    Note over Controller: Respond 202
+    Relay->>DB: Read pending events
+    Relay->>Kafka: Publish, observe<br/>acknowledgement, retry<br/>failures
+    Kafka-->>Relay: Broker acknowledgement
+    Relay->>DB: Mark published
+```
 
 Paths below are relative to
 `services/connector-service/src/main/java/com/changeguard/connector/`:

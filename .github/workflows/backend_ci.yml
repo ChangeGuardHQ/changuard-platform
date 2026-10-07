@@ -1,3 +1,7 @@
+# Backend CI workflow
+# Verifies the connector service, runs security and dependency scans,
+# checks container builds and smoke tests, and uploads scan artifacts.
+
 name: Backend CI
 
 on:
