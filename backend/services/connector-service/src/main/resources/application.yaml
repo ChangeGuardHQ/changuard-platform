@@ -1,21 +1,67 @@
 # Connector service configuration.
-# Environment variables can override the defaults below for local, staging, and production deployments.
+# This file defines the service defaults. Environment variables override these
+# values in local, staging, and production deployments.
+#
+# Configuration conventions:
+# - Values supplied through ${NAME:default} can be overridden by NAME.
+# - Keep secrets outside source control and inject them through deployment
+#   configuration or a secret manager.
+
 spring:
   application:
+    # Identifies the Spring Boot application and its service-specific logging.
     name: connector-service
+
+  datasource:
+    # PostgreSQL connection used by the connector service and its migrations.
+    # SPRING_DATASOURCE_URL and the credentials can be supplied by the runtime.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/changeguard}
+    username: ${SPRING_DATASOURCE_USERNAME:changeguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:changeguard-local}
+
+    hikari:
+      # Restrict the number of concurrent database connections for predictable
+      # resource use in the service container.
+      maximum-pool-size: 10
+      # Wait up to 10 seconds for a connection before reporting a timeout.
+      connection-timeout: 10000
+
+  flyway:
+    # Flyway runs all migrations against the connector schema.
+    default-schema: connector
+    schemas: connector
+    locations: classpath:db/migration
+
+    # Prevent destructive cleanup from being enabled accidentally.
+    clean-disabled: true
+
+  sql:
+    init:
+      # The application relies on Flyway and does not run Spring's SQL initializer.
+      mode: never
 
   kafka:
     # Kafka broker list used to publish connector events.
+    # KAFKA_BOOTSTRAP_SERVERS can identify an external cluster in deployment.
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
     producer:
-      # Wait for all in-sync replicas before acknowledging writes to improve durability.
+      # Require acknowledgment from every in-sync replica for durable writes.
       acks: all
+
+      # Serialize Kafka keys as strings and values as JSON payloads.
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
 
       properties:
+        # Deduplicate producer transport retries; outbox recovery remains at-least-once.
         enable.idempotence: true
+        # Bound synchronous metadata waits and transport retries during broker outages.
+        max.block.ms: 5000
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 30000
+
+        # Keep JSON payloads free of Java type metadata for compatibility.
         spring.json.add.type.headers: false
 
 server:
@@ -26,16 +72,18 @@ management:
   endpoints:
     web:
       exposure:
+        # Expose the health, information, and Prometheus endpoints for monitoring.
         include: health,info,prometheus
 
   endpoint:
     health:
-      # Limit health detail exposure unless the caller is authenticated.
+      # Return full health details only to authenticated callers.
       show-details: when_authorized
 
   prometheus:
     metrics:
       export:
+        # Enable the Prometheus metrics endpoint for service monitoring.
         enabled: true
 
 logging:
@@ -43,16 +91,32 @@ logging:
     root: INFO
     com.changeguard.connector: DEBUG
     org.springframework.kafka: INFO
-    # Spring's development DEBUG logging includes raw webhook request bodies.
+
+    # Spring web logging is retained for request diagnostics while production
+    # deployments should review whether DEBUG detail is appropriate.
     org.springframework.web: INFO
     org.apache.kafka: WARN
 
 changeguard:
+  outbox:
+    # HTTP intake remains available while the independent relay is paused.
+    enabled: ${OUTBOX_ENABLED:true}
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    acknowledgement-timeout: ${OUTBOX_ACKNOWLEDGEMENT_TIMEOUT:10s}
+    # Exceed both max.block.ms and the acknowledgement timeout with recovery margin.
+    lease-duration: ${OUTBOX_LEASE_DURATION:60s}
+    retry-initial-delay: ${OUTBOX_RETRY_INITIAL_DELAY:1s}
+    retry-max-delay: ${OUTBOX_RETRY_MAX_DELAY:30s}
+
   kafka:
     topics:
-      # Kafka topic that receives code-related events emitted by the connector.
+      # Topic used to receive code-related events emitted by the connector.
+      # CODE_EVENTS_TOPIC allows deployment-specific topic selection.
       code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events}
 
   github:
     # Shared secret used to validate incoming GitHub webhook signatures.
+    # Set GITHUB_WEBHOOK_SECRET in deployment configuration instead of committing
+    # a real secret to source control.
     webhook-secret: ${GITHUB_WEBHOOK_SECRET:change-me}

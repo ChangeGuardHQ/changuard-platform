@@ -3,28 +3,31 @@
 The backend currently contains one standalone Maven project: the
 [Connector Service](services/connector-service/pom.xml). It targets Java 21 and
 uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka,
-and Actuator. Its role is to receive external integration events and eventually
-publish normalized ChangeGuard events.
+Actuator, Spring JDBC, and Flyway. Its role is to receive external integration
+events and publish normalized ChangeGuard events through a durable outbox.
 
-The Maven configuration overrides Tomcat to 11.0.26 and the Jackson 3 BOM to
-3.1.7 to address findings from the dependency scan while retaining the current
+The Maven configuration overrides Tomcat to 11.0.26, the Jackson 3 BOM to
+3.1.7, and the Jackson 2 BOM to 2.21.7 to address dependency findings while retaining the current
 Spring Boot release. See
 [Tomcat's security fixes](https://tomcat.apache.org/security-11.html) and the
 [Jackson advisory](https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-cxp5-3px4-pw24).
+Flyway introduces Jackson 2 independently of the application's Jackson 3 mapper;
+both BOMs must therefore stay patched.
 
 The HTTP adapter, configuration, signature validation component, merged pull
-request normalizer, canonical merged change event, and publisher are implemented.
-Webhook processing is still pending,
-so requests with the required headers and body currently receive
-`503 Service Unavailable`. The service can start and expose health information
-while that processing implementation is being built.
+request normalizer, canonical merged change event, publisher, and PostgreSQL
+persistence foundation are implemented. Flyway owns the `connector` schema;
+integration metadata, selected repositories, receipts, and outbox records are durable.
+Signed merged-PR deliveries now resolve the stored installation owner, commit an
+accepted receipt and canonical event, and return `202`. A scheduled relay leases
+pending events, publishes to Kafka, and marks publication after acknowledgement.
+GitHub App setup APIs and downstream timeline consumers remain to be built.
 
 ## Connector system and subsystems
 
-**Status: partial.** The current request path ends at an unavailable processing
-service. The diagram distinguishes that live path from components awaiting
-orchestration. Solid arrows describe the implemented HTTP behavior; dashed arrows
-show planned orchestration or storage connections. The
+**Status: implemented merged-PR intake and publication; other adapters are planned.**
+The HTTP path commits durable work independently of broker availability. The relay
+uses that committed work to publish canonical JSON. The
 [platform service diagrams](../README.md#12-microservice-boundaries) describe the
 downstream Change, Correlation, Audit, Query/BFF, and V2 AI services, all still planned.
 
@@ -32,15 +35,18 @@ downstream Change, Correlation, Audit, Query/BFF, and V2 AI services, all still 
 flowchart TD
     GitHub["GitHub raw delivery"] --> Security["Spring Security route rules"]
     Security --> Controller["GitHubWebhookController: body<br/>and header validation"]
-    Controller --> Lookup{"GitHubWebhookService bean<br/>available?"}
-    Lookup -->|"no: current application"| Unavailable["503 Service Unavailable"]
-    Lookup -.->|"implementation planned"| Processor["Webhook processing<br/>orchestration"]
-    Processor -.-> HMAC["GitHubSignatureValidator -<br/>implemented"]
-    Processor -.-> Normalizer["GitHubEventNormalizer -<br/>implemented"]
-    Normalizer -.-> Event["CodeChangeMergedEvent -<br/>implemented"]
-    Event -.-> Durable["Receipts / outbox - planned"]
-    Durable -.-> Producer["CodeEventProducer -<br/>implemented"]
+    Controller --> Processor["PersistentGitHubWebhookService"]
+    Processor --> HMAC["Verify HMAC over exact bytes"]
+    HMAC --> Normalizer["Strict merged-PR normalization"]
+    Normalizer --> Owner["Resolve stored installation owner"]
+    Owner --> Event["CodeChangeMergedEvent"]
+    Event --> Durable["Validate selected repository and<br/>commit receipt + event"]
+    Durable --> Database[("PostgreSQL: receipts / outbox")]
+    Durable --> Accepted["202 after database commit"]
+    Database --> Relay["Scheduled, leased outbox relay"]
+    Relay --> Producer["CodeEventProducer"]
     Producer --> Kafka["Kafka broker"]
+    Kafka -->|"acknowledgement"| Published["Record publication in PostgreSQL"]
 ```
 
 | Subsystem | Input and output | Status / detailed diagram |
@@ -50,9 +56,10 @@ flowchart TD
 | Provider normalization | Verified activity → merged-PR DTO, ignored activity, or payload error. | Merged PRs implemented; [normalization](#github-event-normalization) |
 | Canonical contract | DTO and trusted context → version-one event with stable identity. | Implemented; [event factory](#canonical-merged-change-event) |
 | Kafka transport | Canonical event → repository-keyed JSON record and acknowledgement future. | Implemented; [publishing](#code-event-publishing) |
-| Durable orchestration | Verified delivery → persisted receipt and eventual publication. | Planned; [remaining work](#source-map-and-remaining-work) |
+| Durable orchestration | Verified delivery → committed receipt/event; leased event → acknowledgement or durable retry. | Implemented; [outbox relay](#outbox-relay) |
+| Connector persistence | Trusted integration/repository metadata and canonical events → scoped records and atomic receipt/outbox writes. | Implemented; [persistence](#connector-persistence) |
 | Access rules and health | HTTP route → public or authenticated access and health/info. | Basic security/health implemented; [security and observability](#security-and-observability) |
-| Container runtime and CI | Source/configuration → runnable service and verification reports. | Implemented; [Docker](#docker-development), [platform CI](../README.md#25-cicd) |
+| Container runtime and CI | Source/configuration → runnable service and verification reports. | Implemented; [Docker](#docker-development), [PostgreSQL runtime](docker/postgres/README.md), [platform CI](../README.md#25-cicd) |
 
 ## Local development
 
@@ -60,7 +67,13 @@ Install a Java 21 JDK and make it available through `JAVA_HOME` or `PATH`. The
 service includes a Maven wrapper configured for Maven 3.9.16; its first run
 downloads Maven and any uncached dependencies.
 
-From the repository root:
+Start PostgreSQL from the repository root before running the connector:
+
+```sh
+docker compose up -d --wait postgres
+```
+
+Then, from the repository root:
 
 ```sh
 cd backend/services/connector-service
@@ -80,30 +93,34 @@ The default base URL is <http://localhost:8081>. Check application health with:
 curl -i http://localhost:8081/actuator/health
 ```
 
-The current Maven startup and tests do not require a running Kafka broker or a
-GitHub account. Health does not establish that webhook ingestion or Kafka
-publishing is working.
+Maven startup requires PostgreSQL and applies Flyway migrations before accepting
+traffic. A running Kafka broker or GitHub account is not required for startup.
+Health includes database connectivity; it does not establish that webhook ingestion
+or Kafka publishing is working. Full-context tests start isolated PostgreSQL
+containers through Testcontainers and require Docker; focused unit/MVC tests do not.
 
 ## Docker development
 
 **Status: implemented.** Maven builds an executable JAR in the image build stage;
 an unprivileged JRE runs it with externally supplied settings. Compose waits for
-Kafka health, mounts writable temporary storage, and uses an otherwise read-only
-connector filesystem. Startup health does not verify the planned ingestion workflow.
+PostgreSQL and Kafka health, mounts writable temporary storage, and uses an otherwise read-only
+connector filesystem. Startup health does not verify end-to-end ingestion or publication.
 
 ```mermaid
 flowchart LR
     Source["Java source / pom.xml"] --> Maven["Temurin JDK + Maven wrapper<br/>build"]
     Maven --> Jar["Executable Spring Boot JAR"]
     Jar --> Runtime["Unprivileged Temurin JRE<br/>runtime"]
-    Config["Environment: port, brokers,<br/>topic, secret"] --> Runtime
+    Config["Environment: database, port,<br/>brokers, topic, secret"] --> Runtime
     Kafka["Compose Kafka health"] -->|"startup dependency"| Runtime
+    Postgres["Compose PostgreSQL health"] -->|"startup dependency"| Runtime
+    Runtime --> Migration["Flyway connector schema migrations"]
     Runtime --> HTTP["Port 8081: webhook / Actuator"]
     Probe["Docker health check"] -->|"GET /actuator/health"| HTTP
 ```
 
 The repository's [Compose configuration](../docker-compose.yaml) runs the
-frontend, Connector Service, and a single-node Kafka broker:
+frontend, Connector Service, PostgreSQL, and a single-node Kafka broker:
 
 ```sh
 docker compose up --build --wait
@@ -111,12 +128,19 @@ curl --fail http://localhost:8081/actuator/health
 ```
 
 Run these commands from the repository root. To start only the connector and
-its Kafka dependency, use `docker compose up --build --wait connector-service`.
+its PostgreSQL/Kafka dependencies, use `docker compose up --build --wait connector-service`.
 The frontend is available on port 5173, the connector on 8081, and Kafka on
 localhost:9092. Override host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`, and
-`KAFKA_PORT`. Containers use `kafka:9092` for broker traffic. The broker uses
+`KAFKA_PORT`; PostgreSQL is bound to localhost on `POSTGRES_PORT` (default 5432).
+Containers use `postgres:5432` for database traffic and `kafka:9092` for broker traffic. The broker uses
 plaintext listeners for local development and retains its data in the
-`kafka_data` volume. Stop the stack with `docker compose down`.
+`kafka_data` volume. Database records persist in `postgres_data`, mounted at
+`/var/lib/postgresql` for PostgreSQL 18. Stop the stack with `docker compose down`;
+this retains both data volumes. PostgreSQL uses the locally built
+`changuard-postgres:18.6-security.1` image, based on the version/digest-pinned
+official 18.6 Alpine image with its vulnerable privilege helper replaced. See
+[PostgreSQL build, startup, and validation diagrams](docker/postgres/README.md).
+`POSTGRES_IMAGE` can override the Compose image. See [.env.example](../.env.example) for local defaults.
 
 Kafka uses the locally built `changuard-kafka:4.2.2-security.1` image, which
 patches the upstream image's Jackson and libexpat vulnerabilities. All dependency
@@ -127,15 +151,16 @@ override the local image tag.
 
 Set `GITHUB_WEBHOOK_SECRET` in the root `.env` file or environment to override
 the development placeholder. `CODE_EVENTS_TOPIC` can also be overridden.
-Webhook processing remains pending, so structurally valid deliveries still
-return 503 even when the containers are healthy.
+Signed merge deliveries require an active stored installation and selected
+repository. GitHub App setup APIs are pending; local test fixtures can seed those
+bindings directly. A Kafka outage leaves accepted events pending for retry.
 
 The service's [Dockerfile](services/connector-service/Dockerfile) pins Temurin
 21.0.12.1+1 and Alpine 3.24 for its build and runtime stages. It builds the
 executable JAR using the Maven wrapper, then runs it as an
 unprivileged user in a JRE image. Its health check calls `/actuator/health`.
 Compose gives the connector a read-only filesystem and writable temporary
-storage, and waits for Kafka health before starting it. Docker builds skip test
+storage, and waits for PostgreSQL and Kafka health before starting it. Docker builds skip test
 execution; the dedicated CI verification job runs the test suite.
 
 ## Build and test
@@ -146,6 +171,7 @@ Run these commands from `backend/services/connector-service`:
 | --- | --- |
 | `./mvnw test` | Run the backend tests. |
 | `./mvnw -Dtest=GitHubWebhookControllerTests test` | Run the webhook controller tests. |
+| `./mvnw -Dtest=ConnectorPersistenceTests test` | Run migration, ownership, deduplication, and atomic-write tests against isolated PostgreSQL; requires Docker. |
 | `./mvnw verify` | Run the Maven lifecycle through verification, including tests and packaging. |
 | `java -jar target/connector-service-0.0.1-SNAPSHOT.jar` | Start the packaged service after a successful build. |
 
@@ -161,6 +187,20 @@ controller tests supply a recording service implementation. The Kafka tests
 validate configuration and serialization, and exercise sends through Kafka's
 mock producer without a running broker.
 
+Persistence tests use real PostgreSQL 18.6 and validate migrations/restart checks,
+organization ownership at repository and foreign-key boundaries, revoked and
+disconnected integrations, repository rename/selection, concurrent redelivery,
+atomic rollback on outbox failure, surrounding transaction rollback, JSON envelope
+round trips, and durable pending/publication state. HTTP integration tests cover
+signature verification before parsing, stored ownership, inactive/unselected
+repositories, redelivery, and `503` with transaction rollback. Relay tests cover
+delayed acknowledgement, send failures, retry timing, competing workers, stale
+leases, and recovery after an acknowledgement/database-update failure. An embedded
+KRaft broker verifies signed HTTP intake through the scheduled relay to a consumed
+JSON record and checks that redelivery does not create another record. Full-context tests fail when
+Docker is unavailable; they do not silently skip database coverage. Backend CI
+runs this same suite and checks applied migrations in the Compose database.
+
 Reports are written to `services/connector-service/target/surefire-reports/`
 relative to this directory. There is currently no backend parent `pom.xml`.
 The [backend CI workflow](../.github/workflows/backend_ci.yml) targets
@@ -169,11 +209,13 @@ wrapper on Ubuntu 24.04. The `setup-java` input uses Adoptium's equivalent SemVe
 identifier, `21.0.12+101.0.LTS`, to select that exact release.
 Independent jobs run Maven verification, Semgrep Java/Spring source security
 scans, Trivy dependency/secret/configuration scans, and the container
-build, Compose startup check, Kafka message smoke test, and connector/Kafka image
+build, Compose startup/migration check, Kafka message smoke test, and connector/Kafka/PostgreSQL image
 scans. The image scans cover packaged Java dependencies and operating-system
 packages. Trivy fails on HIGH or
 CRITICAL findings, including unfixed vulnerabilities. Test and security reports
-are retained as workflow artifacts. Semgrep runs on every workflow invocation,
+are retained as workflow artifacts. CI also prints package/CVE/fixed-version
+summaries in the job log; secret findings show only rule and location metadata,
+never matched credential contents. Semgrep runs on every workflow invocation,
 fails on findings or scanner errors, and saves JSON/SARIF reports as
 `backend-sast`. Its scanner image and upstream rules are pinned, and the scan
 runs without network access or an account.
@@ -191,6 +233,14 @@ connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`
 still has five HIGH findings; the [Kafka Dockerfile](docker/kafka/Dockerfile)
 fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. CI builds and scans that
 patched image and keeps the same HIGH/CRITICAL failure policy.
+
+On October 7, 2026, adding Flyway brought Jackson 2.21.5 into the connector JAR,
+producing five HIGH image findings. The independent Jackson 2 BOM override to
+2.21.7 fixes those findings. The upstream PostgreSQL image had 22 HIGH/CRITICAL
+findings in `gosu`'s bundled Go standard library; the hardened PostgreSQL image
+replaces that binary with Alpine's pinned native helper. Both updated images pass
+the same vulnerability/secret scan. CI runs PostgreSQL startup/data-retention
+smoke checks and all connector database tests against the hardened runtime image.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
 schedule also reruns checks as vulnerability databases change. The workflows
@@ -213,12 +263,17 @@ Defaults live in
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker addresses used by the producer factory. |
 | `CODE_EVENTS_TOPIC` | `changeguard.code-events` | Destination topic used by `CodeEventProducer`. |
 | `GITHUB_WEBHOOK_SECRET` | `change-me` | Shared secret used by the signature validation component. |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/changeguard` | Connector JDBC URL; Compose uses the internal `postgres` hostname. |
+| `SPRING_DATASOURCE_USERNAME` | `changeguard` | Connector database login. |
+| `SPRING_DATASOURCE_PASSWORD` | `changeguard-local` | Local development database password. |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `changeguard` / `changeguard` / `changeguard-local` | Compose initialization and connector credentials. |
+| `POSTGRES_PORT` | `5432` | Localhost database port; set the standalone JDBC URL if this changes. |
 | `SPRING_SECURITY_USER_NAME` | `user` | Spring Boot's development HTTP Basic username. |
 | `SPRING_SECURITY_USER_PASSWORD` | Generated at startup | Spring Boot's development HTTP Basic password. |
 
-The publisher reads the topic setting and the signature validator reads the
-secret setting; `change-me` is a placeholder. Their integration into webhook
-processing is pending, so the HTTP endpoint does not yet invoke either component.
+The intake store records the topic setting with each event. The relay uses that
+stored destination even if configuration later changes. The signature validator
+reads the secret setting; replace the `change-me` development placeholder.
 
 The producer factory builds its settings from `spring.kafka.*`, including
 external overrides for broker security and producer properties. Current
@@ -229,10 +284,118 @@ defaults are:
 - `spring.json.add.type.headers: false`, so serialized values carry no Java
   class-name headers.
 
-Topic creation, webhook delivery deduplication, and publication from webhook
-processing are pending. The platform's [event design](../README.md#10-kafka-design) plans
+The webhook processor invokes durable delivery deduplication. Topic provisioning
+and production retention/replication policies remain deployment work; local Kafka
+can auto-create the configured topic.
+The platform's [event design](../README.md#10-kafka-design) plans
 versioned schemas and Schema Registry integration beyond the current JSON
 serializer configuration.
+
+## Connector persistence
+
+**Status: implemented and connected to HTTP intake and the Kafka relay.** Flyway runs
+[V1__connector_persistence.sql](services/connector-service/src/main/resources/db/migration/V1__connector_persistence.sql),
+[V2__outbox_relay_leases.sql](services/connector-service/src/main/resources/db/migration/V2__outbox_relay_leases.sql),
+and [V3__organization_scoped_delivery_deduplication.sql](services/connector-service/src/main/resources/db/migration/V3__organization_scoped_delivery_deduplication.sql)
+on startup and tracks checksums in `connector.flyway_schema_history`. V2 adds relay
+state; V3 adds the explicit organization/integration/delivery uniqueness key without
+changing either earlier migration. V3 retains the integration/delivery constraint
+so older instances can continue writing during a rolling upgrade. Integration IDs
+are globally unique, so both keys enforce the same delivery identity. Upgrade tests
+preserve accepted receipts and pending events from V1 and V2, and verify the original
+V1 checksum. All SQL
+explicitly targets the connector-owned schema. Spring JDBC provides parameterized
+queries and Spring transactions; Flyway is the sole schema creation mechanism.
+Migration failures prevent startup, and Flyway clean is disabled.
+
+```mermaid
+erDiagram
+    integrations ||--o{ connected_repositories : selects
+    connected_repositories ||--o{ webhook_receipts : receives
+    webhook_receipts ||--o{ outbox_events : records
+    integrations {
+        text id PK
+        text organization_id
+        bigint installation_id UK
+        text status
+    }
+    connected_repositories {
+        text integration_id PK,FK
+        text repository_id PK
+        text organization_id FK
+        text full_name
+        text default_branch
+        text status
+    }
+    webhook_receipts {
+        uuid id PK
+        text integration_id FK
+        text organization_id FK
+        text repository_id FK
+        text delivery_id
+        timestamptz received_at
+        text status
+    }
+    outbox_events {
+        text event_id PK
+        uuid receipt_id FK
+        text organization_id FK
+        text integration_id FK
+        text topic
+        text partition_key
+        jsonb payload
+        text status
+        timestamptz published_at
+        integer attempt_count
+        timestamptz next_attempt_at
+        uuid lease_token
+        timestamptz lease_expires_at
+        text last_failure_code
+    }
+```
+
+`ConnectorIntegrationRepository` creates organization-owned GitHub installation
+metadata, idempotently selects repositories, reads active repositories, and records
+disconnect/revocation. An installation can belong to one integration; composite
+foreign keys prevent attaching another organization's repository or receipt.
+Repository IDs remain strings and names can change independently. Authorization
+and GitHub App setup APIs must supply trusted identifiers; this layer stores no
+private keys, access tokens, signatures, or raw webhook bodies. Organization IDs
+reference the future platform identity boundary rather than a connector-owned user directory.
+
+`ConnectorIntakeStore.accept(CodeChangeMergedEvent)` is called after HMAC validation
+and normalization. It checks active integration/repository ownership and takes
+shared row locks so disconnect/revocation cannot race with acceptance. The database
+uniqueness constraint on `(organization_id, integration_id, delivery_id)` absorbs concurrent
+redelivery. It returns `true` for a new committed intake and `false` for a duplicate,
+preserving the first receipt time and canonical envelope.
+
+```mermaid
+sequenceDiagram
+    participant Caller as Verified webhook processor
+    participant Store as ConnectorIntakeStore
+    participant DB as Connector PostgreSQL schema
+    Caller->>Store: Canonical merge with<br/>trusted context
+    Store->>DB: Begin transaction and lock<br/>active integration/repository
+    Store->>DB: Insert receipt with unique<br/>organization/integration/delivery ID
+    alt New delivery
+        Store->>DB: Insert canonical JSONB<br/>event and repository key
+        Store->>DB: Commit both writes
+        Store-->>Caller: true: durable intake
+    else Already accepted delivery
+        Store-->>Caller: false: duplicate
+    end
+    Note over Store,DB: Any write failure rolls back both records
+```
+
+`OutboxEventRepository.findPending(limit)` inspects pending rows across organizations;
+it does not claim work. The [relay](#outbox-relay) instead uses `claimNext(leaseDuration)`
+and a unique lease token. `markPublished(claim)` and `releaseForRetry(claim, delay, code)`
+update only the current owner's row. Pending work and retry timing survive restarts.
+At-least-once publication requires downstream consumer deduplication. Already accepted
+pending events remain available after an integration is disconnected; disconnect
+blocks new intake. Receipts currently record accepted merged PRs; handling ignored
+or failed provider deliveries in a separate receipt audit remains future work.
 
 ## GitHub event normalization
 
@@ -294,7 +457,9 @@ fields are ignored by the webhook DTO. Reader configuration is local to the
 normalizer and preserves the shared application's mapper configuration.
 
 The normalizer retains delivery identity and maps repeated inputs consistently;
-durable deduplication belongs in the future webhook processing implementation.
+durable deduplication is provided by the intake store through the webhook processor.
+`normalizeDelivery` additionally requires a positive, strictly typed installation ID
+for supported merges. Unsupported activity is ignored only after HMAC verification.
 Its sanitized fixture and unit tests are in
 [GitHubEventNormalizerTests.java](services/connector-service/src/test/java/com/changeguard/connector/normalization/GitHubEventNormalizerTests.java)
 and [pull-request-merged.json](services/connector-service/src/test/resources/github/pull-request-merged.json).
@@ -354,7 +519,7 @@ so embedded separators do not create ambiguous identities.
 
 ## Code event publishing
 
-**Status: implemented transport component; webhook invocation is planned.** The
+**Status: implemented and used by the outbox relay.** The
 producer sends the event using the repository ID as key. Kafka configuration uses
 JSON values, `acks=all`, producer idempotence, and no Java type headers. The
 returned future represents broker acknowledgement or failure; callers must observe
@@ -362,10 +527,10 @@ it. These settings do not provide durable webhook receipt tracking or consumer d
 
 ```mermaid
 flowchart TD
-    Caller["Event caller / future outbox<br/>relay"] --> Producer["CodeEventProducer.publish"]
+    Caller["Outbox relay: stored destination,<br/>key and JSON object"] --> Producer["CodeEventProducer.publish"]
     Producer --> Template["KafkaTemplate from<br/>KafkaProducerConfig"]
     Template --> Serializer["String key / JSON envelope<br/>value"]
-    Serializer --> Topic["CODE_EVENTS_TOPIC: key =<br/>repositoryId"]
+    Serializer --> Topic["Persisted topic and repository key"]
     Topic --> Result["Broker acknowledgement or send<br/>failure"]
     Result --> Future["CompletableFuture returned to<br/>caller"]
 ```
@@ -391,17 +556,65 @@ retries. Kafka failure logs omit record keys and values.
 
 Live publication requires a broker. The JSON now carries a version-one envelope
 instead of the raw GitHub DTO. Avro schemas and Schema Registry integration
-remain planned work. The webhook processing implementation must connect
-normalization, trusted integration lookup, event construction, and publication,
-then handle acknowledgement failures.
+remain planned work. The relay overload accepts the stored outbox record and a
+parsed JSON object so JSONB is published as an envelope, rather than a quoted JSON
+string, and preserves the topic/key recorded at intake.
+
+## Outbox relay
+
+**Status: implemented scheduled publication with durable retries.**
+`OutboxPublishingSchedule` polls independently of HTTP requests.
+`OutboxPublisher` handles up to the configured batch size, claiming one fresh lease
+per send. PostgreSQL `FOR UPDATE SKIP LOCKED` and atomic claim/update SQL allow
+multiple instances to share work. Kafka I/O holds no database transaction open.
+
+```mermaid
+flowchart TD
+    Poll["Scheduled poll"] --> Claim{"Claim one due PENDING row<br/>without an active lease?"}
+    Claim -->|"none"| Stop["Finish poll"]
+    Claim -->|"yes"| Lease["Persist fresh token, expiry,<br/>and increment attempt count"]
+    Lease --> Send["Publish stored topic, key,<br/>and JSON envelope"]
+    Send --> Ack{"Broker acknowledges<br/>within timeout?"}
+    Ack -->|"yes"| Published["Current token: mark PUBLISHED,<br/>clear lease"]
+    Ack -->|"failure / timeout"| Retry["Current token: retain PENDING,<br/>persist backoff, clear lease"]
+    Published --> Next["Continue within batch limit"]
+    Retry --> Next
+    Lease -->|"worker interrupted / DB unavailable"| Expiry["Lease expires: another worker<br/>reclaims the same event ID"]
+    Expiry --> Claim
+```
+
+Defaults are one poll per second, 50 events per poll, a 10-second acknowledgement
+wait, and a 60-second lease. Failed attempts retry after 1, 2, 4, 8, 16, then 30
+seconds, capped at 30 seconds. Attempts continue until publication; no automatic
+dead-letter policy is implemented. Failure codes omit exception messages and raw
+provider data. Inspect pending age, `attempt_count`, `next_attempt_at`, and
+`last_failure_code` to diagnose stalled work.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `OUTBOX_ENABLED` | `true` | Enable scheduled polling; `false` keeps HTTP intake durable while pausing publication. |
+| `OUTBOX_POLL_INTERVAL` | `1s` | Delay between completed polls. |
+| `OUTBOX_BATCH_SIZE` | `50` | Maximum attempted events per poll, from 1 to 1000. |
+| `OUTBOX_ACKNOWLEDGEMENT_TIMEOUT` | `10s` | Maximum wait for each send future after Kafka's synchronous send returns. |
+| `OUTBOX_LEASE_DURATION` | `60s` | Recovery lease; keep longer than synchronous metadata wait plus acknowledgement timeout and operating margin. |
+| `OUTBOX_RETRY_INITIAL_DELAY` | `1s` | First failure's durable backoff. |
+| `OUTBOX_RETRY_MAX_DELAY` | `30s` | Backoff cap. |
+
+Producer metadata waits are bounded to 5 seconds and transport delivery retries to
+30 seconds. A timed-out send can still reach the broker. A crash after broker
+acknowledgement but before the database update can also cause a second publication.
+Both retain the same event ID: consumers must deduplicate. Repository keys keep
+records in one Kafka partition; concurrent workers and retries do not guarantee
+provider occurrence order. A stale worker cannot alter a row after another worker
+has replaced its lease token.
 
 ## GitHub webhook API
 
-**Status: implemented adapter with no application processor registered.** Spring
+**Status: implemented durable merged-PR intake.** Spring
 checks media type, required headers, and body binding; the controller validates
 nonblank metadata and signature syntax. It preserves exact bytes and returns 202
-only after a supplied processor returns normally. The current application follows
-the 503 branch, so neither parsing nor HMAC verification runs from this endpoint yet.
+only after the processor commits a supported merge or deliberately ignores
+verified unsupported activity. Broker availability does not gate HTTP acceptance.
 
 ```mermaid
 flowchart TD
@@ -409,11 +622,17 @@ flowchart TD
     Binding -->|"invalid"| BadRequest["400 missing fields/body; 415<br/>media type"]
     Binding -->|"valid"| Signature{"sha256= plus 64 hex<br/>characters?"}
     Signature -->|"no"| Unauthorized["401 Unauthorized"]
-    Signature -->|"yes"| Service{"Processor registered?"}
-    Service -->|"no: current behavior"| Unavailable["503 Service Unavailable"]
-    Service -->|"yes"| Handle["Pass exact bytes to<br/>handleWebhook"]
-    Handle -->|"normal return"| Accepted["202 Accepted, empty response"]
-    Handle -->|"ResponseStatusException"| Rejection["Preserve service rejection<br/>status"]
+    Signature -->|"yes"| HMAC{"Raw-byte HMAC valid?"}
+    HMAC -->|"no"| Unauthorized
+    HMAC -->|"yes"| Normalize["Strictly normalize supported<br/>merged PRs"]
+    Normalize -->|"malformed supported payload"| PayloadError["400 Bad Request"]
+    Normalize -->|"unsupported activity"| Accepted["202 Accepted, empty response"]
+    Normalize -->|"merged PR"| Owner["Resolve active installation<br/>owner from PostgreSQL"]
+    Owner --> Store["Check selected repository;<br/>commit receipt + event"]
+    Owner -->|"unknown / inactive"| Forbidden["403 Forbidden"]
+    Store -->|"unselected / inactive"| Forbidden
+    Store -->|"commit succeeds or duplicate"| Accepted
+    Store -->|"database failure"| Unavailable["503 Service Unavailable"]
 ```
 
 ```text
@@ -428,15 +647,16 @@ after signature verification.
 | Header | Controller requirement |
 | --- | --- |
 | `X-GitHub-Event` | Present and nonblank; event routing belongs to the processing service. |
-| `X-GitHub-Delivery` | Present and nonblank; forwarded unchanged for future receipt tracking. |
+| `X-GitHub-Delivery` | Present and nonblank; retained for durable integration/delivery deduplication. |
 | `X-Hub-Signature-256` | `sha256=` followed by exactly 64 hexadecimal characters. |
 
-The controller checks signature syntax. Cryptographic HMAC verification is
-pending in the service implementation.
+The controller checks signature syntax. The processor verifies cryptographic HMAC
+before parsing or looking up installation ownership. GitHub's organization ID and
+repository name do not establish internal organization ownership.
 
 ### Signature verification
 
-**Status: implemented component; processor wiring is planned.** Validation hashes
+**Status: implemented and called before payload parsing.** Validation hashes
 the exact body with the configured server-side secret and compares decoded digests
 using `MessageDigest.isEqual`. Malformed signatures fail validation, and an empty
 secret fails initialization. Header syntax alone does not authenticate a delivery.
@@ -449,7 +669,7 @@ flowchart LR
     HMAC --> Compare["MessageDigest.isEqual"]
     Decode --> Compare
     Compare --> Result["Valid / invalid signature"]
-    Result -.-> Processor["Future processor: verify<br/>before parsing"]
+    Result --> Processor["Webhook processor: reject invalid<br/>signatures before parsing"]
 ```
 
 `GitHubSignatureValidator.isValid(byte[] payload, String signatureHeader)` hashes
@@ -461,16 +681,17 @@ or parsing the request body, following
 
 | Status | Meaning |
 | --- | --- |
-| `202 Accepted` | A processing service exists and `handleWebhook` returned normally; the response body is empty. |
-| `400 Bad Request` | Required event/delivery metadata is missing or blank, or the body is missing. |
-| `401 Unauthorized` | The signature header is missing or malformed. |
+| `202 Accepted` | A supported merge committed durably, was already accepted, or verified unsupported activity was ignored; empty body. |
+| `400 Bad Request` | Missing metadata/body, invalid pull request JSON, or missing/invalid required merge or installation fields. |
+| `401 Unauthorized` | Missing/malformed signature or HMAC mismatch. |
+| `403 Forbidden` | A merged delivery's installation or selected repository is unknown, disconnected, or revoked. |
 | `415 Unsupported Media Type` | The request content type is unsupported. |
-| `503 Service Unavailable` | No webhook processing service is registered; this is the current response for requests that pass controller validation. |
+| `503 Service Unavailable` | Durable database lookup/write/commit failed; the delivery was not acknowledged and can be retried. |
 
 Service rejections expressed as `ResponseStatusException` retain their HTTP
 status. The controller acknowledges only a normal return from the service.
 
-To exercise the current endpoint locally with a synthetic signature:
+To exercise rejection locally with a synthetic signature:
 
 ```sh
 curl -i http://localhost:8081/api/v1/integrations/github/webhook \
@@ -481,8 +702,10 @@ curl -i http://localhost:8081/api/v1/integrations/github/webhook \
   --data-binary '{}'
 ```
 
-Expect `503`. This fixture exercises header validation and unavailable-service
-handling; its signature has not been computed from a webhook secret.
+Expect `401`: the signature was not computed from the configured webhook secret.
+To exercise acceptance, send a properly signed merge fixture after creating its
+installation/repository binding. The automated HTTP and Kafka integration tests
+perform this complete flow against isolated infrastructure.
 
 ## Security and observability
 
@@ -535,39 +758,37 @@ signatures.
 
 ## Source map and remaining work
 
-**Status: planned durable orchestration.** A registered processor must authenticate
-bytes before trusting identifiers, resolve allowed integration/repository scope,
-and durably store supported deliveries before returning. Receipts and canonical
-outbox events commit together; an asynchronous relay publishes and observes broker
-acknowledgement. Provider redelivery and relay retries must retain stable identities.
+**Status: implemented merged-PR pipeline; broader V1 integration is partial.**
+The processor authenticates bytes before trusting identifiers, resolves stored
+installation ownership, and commits supported deliveries before returning.
+Receipts and canonical outbox events commit together; an independent scheduled
+relay publishes and observes broker acknowledgement. Redelivery and publication
+retries retain stable identities.
 This completes intake independently of the downstream timeline projection.
 
 ```mermaid
 sequenceDiagram
-    participant Controller
-    participant Processor as Future webhook<br/>processor
-    participant Validator as Signature<br/>validator
-    participant Context as Integration lookup
+    participant Controller as HTTP controller
+    participant Processor as Webhook processor
     participant Normalizer
     participant DB as Receipt / outbox<br/>storage
     participant Relay as Outbox relay
     participant Kafka
-    Controller->>Processor: Headers and exact body bytes
-    Processor->>Validator: Verify raw-byte HMAC
-    Validator-->>Processor: Validity
-    Processor->>Context: Resolve authorized<br/>installation / repository
-    Processor->>Normalizer: Normalize verified supported<br/>activity
-    Normalizer-->>Processor: Merged PR DTO or ignored<br/>activity
+    Controller->>Processor: Headers and exact bytes
+    Processor->>Processor: Verify raw-byte HMAC
+    Processor->>Normalizer: Normalize verified activity
+    Normalizer-->>Processor: Merged PR or ignored activity
     alt Supported merged pull request
-        Processor->>DB: Atomically persist dedup<br/>receipt and canonical outbox<br/>event
+        Processor->>DB: Resolve installation's<br/>stored organization owner
+        Processor->>DB: Lock selected repository and<br/>commit receipt + event
         DB-->>Processor: Durable commit
-        Processor-->>Controller: Normal return after durable<br/>intake
+        Processor-->>Controller: Return after durable commit
     else Verified unsupported activity
-        Processor-->>Controller: Normal return without a<br/>canonical event
+        Processor-->>Controller: Ignore without an event
     end
     Note over Controller: Respond 202
-    Relay->>DB: Read pending events
-    Relay->>Kafka: Publish, observe<br/>acknowledgement, retry<br/>failures
+    Relay->>DB: Atomically lease due pending event
+    Relay->>Kafka: Publish stored JSON envelope
     Kafka-->>Relay: Broker acknowledgement
     Relay->>DB: Mark published
 ```
@@ -581,11 +802,17 @@ Paths below are relative to
 | [config/KafkaProducerConfig.java](services/connector-service/src/main/java/com/changeguard/connector/config/KafkaProducerConfig.java) | `ProducerFactory<String, Object>` and `KafkaTemplate<String, Object>` beans using configured Kafka properties. |
 | [config/SecurityConfig.java](services/connector-service/src/main/java/com/changeguard/connector/config/SecurityConfig.java) | Stateless HTTP security and route access rules. |
 | [api/GitHubWebhookController.java](services/connector-service/src/main/java/com/changeguard/connector/api/GitHubWebhookController.java) | HTTP/header validation, raw-byte handoff, and acknowledgement after service return. |
-| [github/GitHubWebhookService.java](services/connector-service/src/main/java/com/changeguard/connector/github/GitHubWebhookService.java) | Processing interface; no application implementation is registered. |
-| [github/GitHubSignatureValidator.java](services/connector-service/src/main/java/com/changeguard/connector/github/GitHubSignatureValidator.java) | HMAC-SHA256 verification of unmodified request bytes; webhook processing integration is pending. |
+| [github/PersistentGitHubWebhookService.java](services/connector-service/src/main/java/com/changeguard/connector/github/PersistentGitHubWebhookService.java) | Implements `GitHubWebhookService`: verifies HMAC, normalizes supported merges, resolves stored ownership, and commits intake. |
+| [github/GitHubSignatureValidator.java](services/connector-service/src/main/java/com/changeguard/connector/github/GitHubSignatureValidator.java) | HMAC-SHA256 verification of unmodified request bytes before parsing. |
 | [normalization/GitHubEventNormalizer.java](services/connector-service/src/main/java/com/changeguard/connector/normalization/GitHubEventNormalizer.java) | Maps verified closed-and-merged pull request payloads into a provider DTO with merge time; rejects malformed payloads and skips unsupported activity. |
 | [event/CodeChangeMergedEvent.java](services/connector-service/src/main/java/com/changeguard/connector/event/CodeChangeMergedEvent.java) | Validated version-one event envelope with stable delivery identity, trusted organization/integration context, and merge details. |
 | [messaging/CodeEventProducer.java](services/connector-service/src/main/java/com/changeguard/connector/messaging/CodeEventProducer.java) | Publishes canonical merged change events using repository keys and returns acknowledgement futures. |
+| [persistence/ConnectorIntegrationRepository.java](services/connector-service/src/main/java/com/changeguard/connector/persistence/ConnectorIntegrationRepository.java) | Organization-scoped GitHub installation/repository metadata and disconnect/revocation state. |
+| [persistence/ConnectorIntakeStore.java](services/connector-service/src/main/java/com/changeguard/connector/persistence/ConnectorIntakeStore.java) | Atomic accepted receipt/outbox persistence and concurrent delivery deduplication. |
+| [persistence/OutboxEventRepository.java](services/connector-service/src/main/java/com/changeguard/connector/persistence/OutboxEventRepository.java) | Atomic leased claims, token-fenced publication updates, and durable retry state. |
+| [messaging/OutboxPublisher.java](services/connector-service/src/main/java/com/changeguard/connector/messaging/OutboxPublisher.java) | Publishes stored envelopes and observes acknowledgement before recording success. |
+| [messaging/OutboxPublishingSchedule.java](services/connector-service/src/main/java/com/changeguard/connector/messaging/OutboxPublishingSchedule.java) | Polls due events independently of HTTP and recovers after failed polls. |
+| [config/OutboxProperties.java](services/connector-service/src/main/java/com/changeguard/connector/config/OutboxProperties.java) | Validates worker limits and computes capped exponential retry delay. |
 
 The processing contract is:
 
@@ -593,14 +820,13 @@ The processing contract is:
 void handleWebhook(String eventType, String deliveryId, String signature, byte[] payload);
 ```
 
-A registered implementation must verify the SHA-256 HMAC before parsing or
-trusting payload identifiers, handle supported and unsupported events
-explicitly, and durably receive supported deliveries before returning. Verified
-unsupported events may be ignored. Rejections and processing failures must
-propagate to the controller.
+The implementation verifies SHA-256 HMAC before parsing or trusting identifiers,
+handles supported and unsupported events explicitly, and durably receives supported
+deliveries before returning. Verified unsupported events are ignored. Rejections
+and persistence failures propagate as documented HTTP statuses.
 
-Next work includes the webhook processing implementation, durable receipt
-tracking and deduplication, additional event models, and publication integration. The
+Next work includes GitHub App setup and authorized integration APIs, canonical
+Avro/Schema Registry contracts, additional event models, and downstream consumers. The
 [GitHub integration delivery plan](../docs/plans/github-repository-integration.md)
 covers installation, persistence, transactional outbox, canonical schemas, and
 the first complete ingestion-to-timeline flow. The

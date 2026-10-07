@@ -516,14 +516,16 @@ features. In mixed-status diagrams, node labels identify the status. Solid arrow
 show calls or data flow; dashed arrows show a pending connection or supporting
 dependency, as described beside the diagram.
 
-The current Compose stack runs the frontend shell, Connector Service, and Kafka.
-The connector has tested ingestion components but no registered webhook processor;
-structurally valid webhooks return `503`, and the UI has no live platform data.
+The current Compose stack runs the frontend shell, Connector Service, Kafka, and PostgreSQL.
+The connector owns migrated integration, repository-selection, receipt, and outbox tables.
+The connector verifies signed merged-PR deliveries, resolves stored installation
+ownership, and commits receipts/events before returning `202`. Its scheduled outbox
+relay publishes JSON to Kafka after leasing durable work. The UI has no live platform data.
 
 | System or subsystem | Status | Diagram and responsibility |
 | --- | --- | --- |
 | Frontend composition, routes, state, and API transport | Partial | [Frontend](#73-frontend-system), [subsystem diagrams](frontend/README.md#system-and-subsystems) |
-| Connector intake, signature verification, normalization, envelope, and producer | Partial | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
+| Connector merged-PR intake, signature verification, normalization, envelope, and relay | Implemented; other adapters planned | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
 | GitHub installation and repository selection | Planned V1 | [GitHub connection](#1211-github-connection-and-repository-selection) |
 | CI/build, deployment, and runtime ingestion | Planned V1 | [Connector adapters](#1212-ci-and-build-ingestion) |
 | Change records and lifecycle timelines | Planned V1 | [Change Service](#122-change-service) |
@@ -532,8 +534,8 @@ structurally valid webhooks return `503`, and the UI has no live platform data.
 | API Gateway and Query/BFF | Planned V1 | [Read aggregation](#125-querybff-service), [API routing](#19-api-design) |
 | Kafka broker, partitions, and consumer groups | Partial | [Kafka](#10-kafka-design), [image build and smoke test](backend/docker/kafka/README.md) |
 | Canonical contracts and Schema Registry | Partial / Planned V1 | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
-| PostgreSQL ownership and Redis | Planned V1 | [Database](#13-database-strategy), [cache](#14-redis-strategy) |
-| Transactional outbox, deduplication, and failure recovery | Planned V1 | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
+| PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [PostgreSQL runtime](backend/docker/postgres/README.md), [cache](#14-redis-strategy) |
+| Transactional outbox, deduplication, and failure recovery | Connector intake, leases and retry relay implemented; consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
 | Authentication, authorization, and secrets | Partial | [Security](#20-security), [current connector rules](backend/README.md#security-and-observability) |
 | Metrics, logs, traces, and alerts | Partial | [Observability](#21-observability) |
 | Local containers and CI verification | Implemented | [Compose](#23-local-development), [CI](#25-cicd) |
@@ -733,7 +735,7 @@ Kafka should be used for:
 
 **Status: partial.** Compose provides one KRaft node acting as broker and controller
 with a persistent volume. `CodeEventProducer` can publish JSON to
-`changeguard.code-events` when invoked; webhook wiring, downstream consumers, other
+`changeguard.code-events` through the scheduled outbox relay; downstream consumers, other
 topic families, retention policies, and schema enforcement are planned. Each
 consumer group receives its own copy of a topic's records; consumers within a
 group divide its partitions.
@@ -1011,20 +1013,23 @@ Do not create dozens of tiny services.
 **Status: partial.** The Connector Service owns the provider boundary: authenticate
 raw deliveries, resolve trusted integration context, normalize supported activity,
 and publish canonical events. The HTTP adapter, HMAC validator, merged-PR
-normalizer, event record, and producer exist individually. The processing service,
-integration lookup, durable receipts, and outbox are planned, so this complete
-pipeline is not yet active. See the [backend subsystem diagrams](backend/README.md#connector-system-and-subsystems).
+normalizer, event record, and producer form an active merged-PR pipeline. The
+processor resolves organization ownership from the stored GitHub installation,
+checks active selected repositories, and commits durable receipts/outbox events
+before returning `202`. The relay leases events and records success after Kafka
+acknowledgement, with durable retries on failure. GitHub App setup APIs and other
+event adapters remain planned. See the [backend subsystem diagrams](backend/README.md#connector-system-and-subsystems).
 
 ```mermaid
 flowchart TD
     Provider["Provider delivery"] --> HTTP["HTTP adapter - implemented"]
-    HTTP -.-> Processor["Webhook processor - planned"]
+    HTTP --> Processor["Persistent webhook processor"]
     Processor --> HMAC["Signature validator -<br/>implemented"]
-    HMAC --> Context["Integration lookup / delivery<br/>dedup - planned"]
-    Context --> Normalize["Merged PR normalizer -<br/>implemented"]
-    Normalize --> Event["Canonical event factory -<br/>implemented"]
-    Event --> DB[("Receipt and outbox - planned")]
-    DB --> Relay["Outbox relay - planned"]
+    HMAC --> Normalize["Strict merged PR normalizer"]
+    Normalize --> Context["Stored installation owner lookup"]
+    Context --> Event["Canonical event factory"]
+    Event --> DB[("Atomic receipt and outbox - implemented")]
+    DB --> Relay["Scheduled leased outbox relay"]
     Relay --> Producer["Code event producer -<br/>implemented"]
     Producer --> Kafka["Kafka - implemented"]
 ```
@@ -1322,9 +1327,10 @@ Avoid direct database access across services.
 
 Example:
 
-**Status: planned V1.** Services can share an early PostgreSQL cluster while
-retaining separate schema ownership. Connector receipt/integration storage is
-also planned in the GitHub integration work. Cross-service reads use APIs or
+**Status: connector persistence implemented; downstream schemas planned V1.**
+Services can share an early PostgreSQL cluster while retaining separate schema
+ownership. The connector uses Flyway migrations and Spring JDBC for installation,
+selected repository, receipt, and outbox storage. Cross-service reads use APIs or
 event-fed projections; the diagram's arrows represent exclusive write ownership.
 
 ```mermaid
@@ -1438,10 +1444,16 @@ The system becomes inconsistent.
 
 Use a transactional outbox.
 
-**Status: planned V1.** Commit business state and the outgoing event together.
+**Status: connector atomic intake and publication relay implemented; other services planned V1.**
+Commit business state and the outgoing event together.
 A relay marks the outbox row sent only after Kafka acknowledgement. A crash after
 publication but before marking can resend the event, so stable event IDs and
-idempotent consumers remain required. No outbox exists in the current connector.
+idempotent consumers remain required. `ConnectorIntakeStore` already commits a
+verified merged-change receipt and canonical JSONB outbox event together. HTTP
+returns `202` after that commit. The scheduled relay claims due rows using
+`FOR UPDATE SKIP LOCKED`, fences updates with lease tokens, and persists capped
+exponential backoff. Expired leases recover interrupted workers; publication is
+at-least-once. See [relay configuration and recovery](backend/README.md#outbox-relay).
 
 ```mermaid
 sequenceDiagram
@@ -1452,7 +1464,7 @@ sequenceDiagram
     Service->>DB: BEGIN transaction
     Service->>DB: Write business state and<br/>outbox event
     Service->>DB: COMMIT both atomically
-    Relay->>DB: Read pending outbox rows
+    Relay->>DB: Lease one due pending row
     Relay->>Kafka: Publish with stable eventId
     alt Broker acknowledges
         Kafka-->>Relay: Acknowledgement
@@ -1506,8 +1518,8 @@ Before processing:
 record and commit it atomically with business effects. Commit the Kafka offset
 after the database transaction succeeds. A crash before offset commit may cause
 redelivery, which the stored ID safely absorbs. Stable IDs exist in the current
-event factory, but neither durable webhook receipts nor consumer deduplication
-are implemented.
+event factory. Durable connector receipts now deduplicate by integration and
+delivery ID, including concurrent intake. Downstream consumer deduplication is planned.
 
 ```mermaid
 flowchart TD
@@ -1700,7 +1712,7 @@ flowchart LR
     Gateway -->|"dashboard and timeline reads"| Read["Change / correlation / audit<br/>APIs"]
     Gateway -->|"connect / configure"| Setup["Integration configuration APIs"]
     Provider["GitHub delivery"] -->|"POST<br/>/api/v1/integrations/github/webhook"| Webhook["Connector webhook adapter -<br/>implemented"]
-    Webhook -.-> Processor["Signature-authenticated<br/>processor - planned"]
+    Webhook --> Processor["Signature-authenticated<br/>persistent processor"]
 ```
 
 Start with REST.
@@ -1918,8 +1930,10 @@ Example:
 **Status: planned V1 recovery workflow.** Classify errors before retrying. Retry
 transient failures with bounded backoff; retain permanent or exhausted failures
 for inspection and controlled replay. Preserve event identity on replay so the
-same idempotency checks protect business effects. HTTP 503 handling exists, but
-application retry topics, dead-letter handling, and circuit breakers do not yet.
+same idempotency checks protect business effects. The connector already persists
+outbox retries with capped backoff and recovers expired worker leases. It retries
+pending publication until acknowledgement; retry budgets, application retry topics,
+dead-letter handling, and circuit breakers remain planned.
 
 ```mermaid
 flowchart TD
@@ -1941,12 +1955,13 @@ Permanent validation errors should fail fast.
 
 # 23. Local Development
 
-**Status: implemented three-container stack.** Vite serves the browser on 5173,
-the connector exposes HTTP on 8081, and Kafka exposes a host listener on 9092.
-Containers use `kafka:9092`; the connector starts after broker health succeeds.
-The named Kafka volume retains records across restarts. The frontend currently
+**Status: implemented four-container stack.** Vite serves the browser on 5173,
+the connector exposes HTTP on 8081, Kafka exposes a host listener on 9092, and
+PostgreSQL binds to localhost:5432. Containers use `kafka:9092` and `postgres:5432`;
+the connector starts after both dependencies are healthy and runs Flyway migrations.
+Named Kafka/PostgreSQL volumes retain records across restarts. The frontend currently
 renders its shell without an API connection; additional local services below are
-planned, and the Kafka producer is not yet invoked by webhook traffic.
+planned. Signed merged-PR webhook traffic reaches Kafka through the durable outbox relay.
 
 ```mermaid
 flowchart LR
@@ -1956,11 +1971,14 @@ flowchart LR
     Connector -.->|"configured producer:<br/>kafka:9092"| Kafka
     Kafka --> Volume[("kafka_data named volume")]
     Kafka -.->|"health gates connector startup"| Connector
+    Connector -->|"JDBC / Flyway"| Postgres["postgres: connector-owned schema"]
+    Postgres --> DatabaseVolume[("postgres_data named volume")]
+    Postgres -.->|"health gates startup"| Connector
 ```
 
 Local development should be possible with Docker Compose.
 
-Run the frontend, Connector Service, and Kafka from the repository root with:
+Run the frontend, Connector Service, Kafka, and PostgreSQL from the repository root with:
 
 ```sh
 docker compose up --build
@@ -1968,13 +1986,14 @@ docker compose up --build
 
 Then open <http://localhost:5173>. The connector's health endpoint is
 <http://localhost:8081/actuator/health>, and Kafka is available on localhost:9092.
-The [Compose file](docker-compose.yaml) waits for Kafka health before starting
+The [Compose file](docker-compose.yaml) waits for Kafka and PostgreSQL health before starting
 the connector. If port 5173 is in use, start it with
 `FRONTEND_PORT=5174 docker compose up --build` and open <http://localhost:5174>.
 Stop the app with `Ctrl+C`, or run `docker compose down`.
 
-Set `CONNECTOR_PORT` or `KAFKA_PORT` to change the other host ports. Kafka data is
-retained in a named volume. To start only the connector and its Kafka dependency,
+Set `CONNECTOR_PORT`, `KAFKA_PORT`, or `POSTGRES_PORT` to change the other host ports.
+The [.env.example](.env.example) lists development settings. Kafka and database
+data are retained in named volumes. To start only the connector and its dependencies,
 use `docker compose up --build --wait connector-service`.
 
 Compose builds a [patched Kafka image](backend/docker/kafka/README.md) with
@@ -2106,6 +2125,7 @@ flowchart TD
     Workflow --> CodeQL["CodeQL when repository<br/>supports it"]
     Workflow --> Container["Docker build, startup smoke,<br/>image scan"]
     Container --> KafkaTest["Backend also verifies Kafka<br/>message round trip"]
+    Container --> PostgresTest["Backend verifies PostgreSQL<br/>schema migrations"]
     Checks --> Reports["Retained test and scan<br/>artifacts"]
     SAST --> Reports
     Dependencies --> Reports
@@ -2137,7 +2157,11 @@ independent Semgrep source scans, dependency/secret/configuration scanning, and 
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.
 HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
-artifacts. Semgrep fails on source findings or scanner errors and retains JSON
+artifacts. Backend Trivy scans also print package, CVE, installed/fixed-version,
+and secret-rule/location summaries in job logs without printing matched secrets.
+PostgreSQL runtime scans use the hardened local image described in
+[its build and verification diagrams](backend/docker/postgres/README.md).
+Semgrep fails on source findings or scanner errors and retains JSON
 and SARIF reports as `backend-sast` and `frontend-sast`. Its scanner image is
 pinned by version and digest, and its Java/Spring and JavaScript/TypeScript/React
 rules are checked out at a fixed upstream commit. Scans run with network access
@@ -2174,6 +2198,9 @@ exact versions matching the lockfile.
 | Eclipse Temurin | `21.0.12.1+1` |
 | Alpine Docker base | `3.24` |
 | Kafka | `4.2.2` (image `4.2.2-security.1`) |
+| PostgreSQL | `18.6-alpine3.24` base digest pinned; local image `18.6-security.1` with `su-exec 0.3-r0` |
+| Flyway / PostgreSQL JDBC / Testcontainers | `11.14.1` / `42.7.13` / `2.0.5` (Spring Boot BOM) |
+| Connector Jackson BOMs | `2.21.7` (Flyway dependencies) / `3.1.7` (application mapper) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
 | Kafka libexpat | `2.8.5-r0` |
 | CodeQL bundle | `2.27.1` |
@@ -2266,15 +2293,17 @@ for early production.
 
 # 27. Testing Strategy
 
-**Status: partial.** Frontend unit/route/API-client tests and backend component
-tests run today, alongside container startup and Kafka message smoke checks.
-Database/Kafka consumer integration, schema contracts, full lifecycle end-to-end,
+**Status: partial.** Frontend unit/route/API-client tests, backend component tests,
+and real PostgreSQL migration/persistence tests run today, including signed HTTP
+intake through the scheduled outbox relay to an embedded Kafka broker and consumed
+JSON record. Container startup and Kafka message smoke checks also run. Downstream
+domain consumer integration, schema contracts, full lifecycle end-to-end,
 and performance suites are planned. Each layer verifies a different boundary;
 component mocks alone do not demonstrate a working ingestion-to-UI pipeline.
 
 ```mermaid
 flowchart LR
-    Unit["Implemented: unit and<br/>component contracts"] --> Integration["Planned: real Kafka /<br/>PostgreSQL / Redis integration"]
+    Unit["Implemented: unit and<br/>component contracts"] --> Integration["PostgreSQL and webhook-to-Kafka<br/>implemented; domain consumers / Redis planned"]
     Schema["Planned:<br/>producer-schema-consumer<br/>compatibility"] --> Integration
     Integration --> E2E["Planned: signed webhook to<br/>timeline and impact UI"]
     Smoke["Implemented: container health<br/>and Kafka round trip"] --> E2E
