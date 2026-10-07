@@ -28,6 +28,8 @@
         <java.version>21</java.version>
         <!-- Security patch overrides until the Spring Boot BOM includes these fixes. -->
         <tomcat.version>11.0.26</tomcat.version>
+        <!-- Flyway brings Jackson 2 independently of the application's Jackson 3. -->
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
         <jackson-bom.version>3.1.7</jackson-bom.version>
     </properties>
 

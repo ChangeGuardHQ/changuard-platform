@@ -534,7 +534,7 @@ relay publishes JSON to Kafka after leasing durable work. The UI has no live pla
 | API Gateway and Query/BFF | Planned V1 | [Read aggregation](#125-querybff-service), [API routing](#19-api-design) |
 | Kafka broker, partitions, and consumer groups | Partial | [Kafka](#10-kafka-design), [image build and smoke test](backend/docker/kafka/README.md) |
 | Canonical contracts and Schema Registry | Partial / Planned V1 | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
-| PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [cache](#14-redis-strategy) |
+| PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [PostgreSQL runtime](backend/docker/postgres/README.md), [cache](#14-redis-strategy) |
 | Transactional outbox, deduplication, and failure recovery | Connector intake, leases and retry relay implemented; consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
 | Authentication, authorization, and secrets | Partial | [Security](#20-security), [current connector rules](backend/README.md#security-and-observability) |
 | Metrics, logs, traces, and alerts | Partial | [Observability](#21-observability) |
@@ -2157,7 +2157,11 @@ independent Semgrep source scans, dependency/secret/configuration scanning, and 
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.
 HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
-artifacts. Semgrep fails on source findings or scanner errors and retains JSON
+artifacts. Backend Trivy scans also print package, CVE, installed/fixed-version,
+and secret-rule/location summaries in job logs without printing matched secrets.
+PostgreSQL runtime scans use the hardened local image described in
+[its build and verification diagrams](backend/docker/postgres/README.md).
+Semgrep fails on source findings or scanner errors and retains JSON
 and SARIF reports as `backend-sast` and `frontend-sast`. Its scanner image is
 pinned by version and digest, and its Java/Spring and JavaScript/TypeScript/React
 rules are checked out at a fixed upstream commit. Scans run with network access
@@ -2194,8 +2198,9 @@ exact versions matching the lockfile.
 | Eclipse Temurin | `21.0.12.1+1` |
 | Alpine Docker base | `3.24` |
 | Kafka | `4.2.2` (image `4.2.2-security.1`) |
-| PostgreSQL | `18.6-alpine3.24` (multi-platform image digest pinned) |
+| PostgreSQL | `18.6-alpine3.24` base digest pinned; local image `18.6-security.1` with `su-exec 0.3-r0` |
 | Flyway / PostgreSQL JDBC / Testcontainers | `11.14.1` / `42.7.13` / `2.0.5` (Spring Boot BOM) |
+| Connector Jackson BOMs | `2.21.7` (Flyway dependencies) / `3.1.7` (application mapper) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
 | Kafka libexpat | `2.8.5-r0` |
 | CodeQL bundle | `2.27.1` |

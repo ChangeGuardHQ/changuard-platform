@@ -6,11 +6,13 @@ uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka
 Actuator, Spring JDBC, and Flyway. Its role is to receive external integration
 events and publish normalized ChangeGuard events through a durable outbox.
 
-The Maven configuration overrides Tomcat to 11.0.26 and the Jackson 3 BOM to
-3.1.7 to address findings from the dependency scan while retaining the current
+The Maven configuration overrides Tomcat to 11.0.26, the Jackson 3 BOM to
+3.1.7, and the Jackson 2 BOM to 2.21.7 to address dependency findings while retaining the current
 Spring Boot release. See
 [Tomcat's security fixes](https://tomcat.apache.org/security-11.html) and the
 [Jackson advisory](https://github.com/FasterXML/jackson-databind/security/advisories/GHSA-cxp5-3px4-pw24).
+Flyway introduces Jackson 2 independently of the application's Jackson 3 mapper;
+both BOMs must therefore stay patched.
 
 The HTTP adapter, configuration, signature validation component, merged pull
 request normalizer, canonical merged change event, publisher, and PostgreSQL
@@ -57,7 +59,7 @@ flowchart TD
 | Durable orchestration | Verified delivery → committed receipt/event; leased event → acknowledgement or durable retry. | Implemented; [outbox relay](#outbox-relay) |
 | Connector persistence | Trusted integration/repository metadata and canonical events → scoped records and atomic receipt/outbox writes. | Implemented; [persistence](#connector-persistence) |
 | Access rules and health | HTTP route → public or authenticated access and health/info. | Basic security/health implemented; [security and observability](#security-and-observability) |
-| Container runtime and CI | Source/configuration → runnable service and verification reports. | Implemented; [Docker](#docker-development), [platform CI](../README.md#25-cicd) |
+| Container runtime and CI | Source/configuration → runnable service and verification reports. | Implemented; [Docker](#docker-development), [PostgreSQL runtime](docker/postgres/README.md), [platform CI](../README.md#25-cicd) |
 
 ## Local development
 
@@ -134,9 +136,11 @@ Containers use `postgres:5432` for database traffic and `kafka:9092` for broker 
 plaintext listeners for local development and retains its data in the
 `kafka_data` volume. Database records persist in `postgres_data`, mounted at
 `/var/lib/postgresql` for PostgreSQL 18. Stop the stack with `docker compose down`;
-this retains both data volumes. PostgreSQL uses the version/digest-pinned
-`18.6-alpine3.24` official image, matching the integration tests. `POSTGRES_IMAGE`
-can override the Compose image. See [.env.example](../.env.example) for local defaults.
+this retains both data volumes. PostgreSQL uses the locally built
+`changuard-postgres:18.6-security.1` image, based on the version/digest-pinned
+official 18.6 Alpine image with its vulnerable privilege helper replaced. See
+[PostgreSQL build, startup, and validation diagrams](docker/postgres/README.md).
+`POSTGRES_IMAGE` can override the Compose image. See [.env.example](../.env.example) for local defaults.
 
 Kafka uses the locally built `changuard-kafka:4.2.2-security.1` image, which
 patches the upstream image's Jackson and libexpat vulnerabilities. All dependency
@@ -209,7 +213,9 @@ build, Compose startup/migration check, Kafka message smoke test, and connector/
 scans. The image scans cover packaged Java dependencies and operating-system
 packages. Trivy fails on HIGH or
 CRITICAL findings, including unfixed vulnerabilities. Test and security reports
-are retained as workflow artifacts. Semgrep runs on every workflow invocation,
+are retained as workflow artifacts. CI also prints package/CVE/fixed-version
+summaries in the job log; secret findings show only rule and location metadata,
+never matched credential contents. Semgrep runs on every workflow invocation,
 fails on findings or scanner errors, and saves JSON/SARIF reports as
 `backend-sast`. Its scanner image and upstream rules are pinned, and the scan
 runs without network access or an account.
@@ -227,6 +233,14 @@ connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`
 still has five HIGH findings; the [Kafka Dockerfile](docker/kafka/Dockerfile)
 fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. CI builds and scans that
 patched image and keeps the same HIGH/CRITICAL failure policy.
+
+On October 7, 2026, adding Flyway brought Jackson 2.21.5 into the connector JAR,
+producing five HIGH image findings. The independent Jackson 2 BOM override to
+2.21.7 fixes those findings. The upstream PostgreSQL image had 22 HIGH/CRITICAL
+findings in `gosu`'s bundled Go standard library; the hardened PostgreSQL image
+replaces that binary with Alpine's pinned native helper. Both updated images pass
+the same vulnerability/secret scan. CI runs PostgreSQL startup/data-retention
+smoke checks and all connector database tests against the hardened runtime image.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
 schedule also reruns checks as vulnerability databases change. The workflows
@@ -280,10 +294,16 @@ serializer configuration.
 ## Connector persistence
 
 **Status: implemented and connected to HTTP intake and the Kafka relay.** Flyway runs
-[V1__connector_persistence.sql](services/connector-service/src/main/resources/db/migration/V1__connector_persistence.sql)
-and [V2__outbox_relay_leases.sql](services/connector-service/src/main/resources/db/migration/V2__outbox_relay_leases.sql)
+[V1__connector_persistence.sql](services/connector-service/src/main/resources/db/migration/V1__connector_persistence.sql),
+[V2__outbox_relay_leases.sql](services/connector-service/src/main/resources/db/migration/V2__outbox_relay_leases.sql),
+and [V3__organization_scoped_delivery_deduplication.sql](services/connector-service/src/main/resources/db/migration/V3__organization_scoped_delivery_deduplication.sql)
 on startup and tracks checksums in `connector.flyway_schema_history`. V2 adds relay
-state without changing V1. All SQL
+state; V3 adds the explicit organization/integration/delivery uniqueness key without
+changing either earlier migration. V3 retains the integration/delivery constraint
+so older instances can continue writing during a rolling upgrade. Integration IDs
+are globally unique, so both keys enforce the same delivery identity. Upgrade tests
+preserve accepted receipts and pending events from V1 and V2, and verify the original
+V1 checksum. All SQL
 explicitly targets the connector-owned schema. Spring JDBC provides parameterized
 queries and Spring transactions; Flyway is the sole schema creation mechanism.
 Migration failures prevent startup, and Flyway clean is disabled.
@@ -346,7 +366,7 @@ reference the future platform identity boundary rather than a connector-owned us
 `ConnectorIntakeStore.accept(CodeChangeMergedEvent)` is called after HMAC validation
 and normalization. It checks active integration/repository ownership and takes
 shared row locks so disconnect/revocation cannot race with acceptance. The database
-uniqueness constraint on `(integration_id, delivery_id)` absorbs concurrent
+uniqueness constraint on `(organization_id, integration_id, delivery_id)` absorbs concurrent
 redelivery. It returns `true` for a new committed intake and `false` for a duplicate,
 preserving the first receipt time and canonical envelope.
 
@@ -357,7 +377,7 @@ sequenceDiagram
     participant DB as Connector PostgreSQL schema
     Caller->>Store: Canonical merge with<br/>trusted context
     Store->>DB: Begin transaction and lock<br/>active integration/repository
-    Store->>DB: Insert receipt with unique<br/>integration/delivery ID
+    Store->>DB: Insert receipt with unique<br/>organization/integration/delivery ID
     alt New delivery
         Store->>DB: Insert canonical JSONB<br/>event and repository key
         Store->>DB: Commit both writes

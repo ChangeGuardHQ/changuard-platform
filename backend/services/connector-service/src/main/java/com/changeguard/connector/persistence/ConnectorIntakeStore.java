@@ -71,7 +71,7 @@ public class ConnectorIntakeStore {
                 INSERT INTO connector.webhook_receipts
                     (id, organization_id, integration_id, repository_id, delivery_id, provider_event_type, received_at)
                 VALUES (:receipt, :organization, :integration, :repository, :delivery, 'pull_request', :received)
-                ON CONFLICT (integration_id, delivery_id) DO NOTHING
+                ON CONFLICT (organization_id, integration_id, delivery_id) DO NOTHING
                 """)
                 .param("receipt", receiptId).param("organization", organizationId)
                 .param("integration", integrationId).param("repository", repositoryId)

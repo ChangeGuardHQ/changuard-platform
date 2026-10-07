@@ -58,7 +58,7 @@ class ConnectorPersistenceTests {
     @Test
     void migrationsAreValidatedAndNotReappliedOnRestart() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(integrations.findGitHubIntegration(ORGANIZATION, INTEGRATION)).isPresent();
     }
@@ -117,6 +117,16 @@ class ConnectorPersistenceTests {
 
     @Test
     void sameDeliveryIdInDifferentIntegrationsIsNotADuplicate() {
+        integrations.createGitHubIntegration("org-b", "integration-b", 1002);
+        integrations.connectRepository("org-b", "integration-b", REPOSITORY, "acme/service", "main");
+        assertThat(intake.accept(event("delivery-1", ORGANIZATION, INTEGRATION))).isTrue();
+        assertThat(intake.accept(event("delivery-1", "org-b", "integration-b"))).isTrue();
+        assertThat(count("webhook_receipts")).isEqualTo(2);
+        assertThat(count("outbox_events")).isEqualTo(2);
+    }
+
+    @Test
+    void sameDeliveryIdAcrossDifferentOrganizationsAndIntegrationsIsNotADuplicate() {
         integrations.createGitHubIntegration("org-b", "integration-b", 1002);
         integrations.connectRepository("org-b", "integration-b", REPOSITORY, "acme/service", "main");
         assertThat(intake.accept(event("delivery-1", ORGANIZATION, INTEGRATION))).isTrue();
