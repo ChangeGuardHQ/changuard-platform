@@ -1,5 +1,5 @@
 # ChangeGuard platform local development stack.
-# This Compose file starts the frontend, the connector service, and a single-node Kafka broker.
+# Starts the frontend, connector, Kafka, and PostgreSQL for local development.
 # The frontend is served locally on port 5173 by default, and the connector service exposes its API on port 8081.
 
 services:
@@ -21,8 +21,8 @@ services:
     networks:
       - changuard_network
 
-  # Connector service that consumes Kafka events and exposes the backend API.
-  # It waits for Kafka to become healthy before starting.
+  # Connector receives integration events and owns the connector database schema.
+  # Database migrations run at startup after PostgreSQL and Kafka become healthy.
   connector-service:
     image: ${CONNECTOR_SERVICE_IMAGE:-changuard-connector-service:0.0.1}
     build:
@@ -36,14 +36,48 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-true}
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
+      OUTBOX_ACKNOWLEDGEMENT_TIMEOUT: ${OUTBOX_ACKNOWLEDGEMENT_TIMEOUT:-10s}
+      OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-60s}
+      OUTBOX_RETRY_INITIAL_DELAY: ${OUTBOX_RETRY_INITIAL_DELAY:-1s}
+      OUTBOX_RETRY_MAX_DELAY: ${OUTBOX_RETRY_MAX_DELAY:-30s}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-changeguard}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-changeguard}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
     depends_on:
       kafka:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
     cap_drop:
       - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - changuard_network
+
+  # PostgreSQL 18 stores version-specific data below /var/lib/postgresql.
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-changeguard}
+      POSTGRES_USER: ${POSTGRES_USER:-changeguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      start_period: 15s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql
     security_opt:
       - no-new-privileges:true
     networks:
@@ -84,10 +118,11 @@ services:
     networks:
       - changuard_network
 
-# Named volumes persist node_modules for the frontend and Kafka data across container restarts.
+# Named volumes retain frontend dependencies and Kafka/PostgreSQL data.
 volumes:
   frontend_node_modules:
   kafka_data:
+  postgres_data:
 
 # Shared internal Docker network for local service discovery.
 networks:

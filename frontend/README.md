@@ -120,7 +120,8 @@ docker compose up --build
 
 Open <http://localhost:5173>. The
 [Compose setup](../docker-compose.yaml) also starts the Connector Service on
-port 8081 and Kafka on port 9092. To run only the frontend, use
+port 8081, Kafka on port 9092, and PostgreSQL on localhost:5432. The connector
+applies its database migrations at startup. To run only the frontend, use
 `docker compose up --build frontend`. Set `FRONTEND_PORT` before starting
 Compose to use a different host port if 5173 is already in use.
 

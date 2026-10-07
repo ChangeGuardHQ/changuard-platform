@@ -216,6 +216,7 @@ jobs:
     env:
       CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
       KAFKA_IMAGE: changuard-kafka:4.2.2-security.1
+      POSTGRES_IMAGE: postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -254,10 +255,17 @@ jobs:
           cache-from: type=gha,scope=kafka
           cache-to: type=gha,mode=max,scope=kafka
 
-      - name: Smoke test connector and Kafka
+      - name: Pull pinned PostgreSQL image
+        id: postgres-pull
+        run: docker pull "$POSTGRES_IMAGE"
+
+      - name: Smoke test connector, PostgreSQL migrations, and Kafka
         run: |
           docker compose up --no-build --wait --wait-timeout 180 connector-service
           curl --fail --silent --show-error http://localhost:8081/actuator/health
+          docker compose exec -T postgres psql -U changeguard -d changeguard -v ON_ERROR_STOP=1 \
+            -c 'SELECT version FROM connector.flyway_schema_history WHERE success;' \
+            -c 'SELECT count(*) FROM connector.outbox_events;'
           sh backend/docker/kafka/smoke-test.sh
 
       - name: Scan image OS packages, Java dependencies, and secrets
@@ -286,6 +294,19 @@ jobs:
           format: json
           output: backend-kafka-security.json
 
+      - name: Scan PostgreSQL image packages and secrets
+        if: always() && steps.postgres-pull.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.POSTGRES_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-postgres-security.json
+
       - name: Upload container security report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -294,6 +315,7 @@ jobs:
           path: |
             backend-container-security.json
             backend-kafka-security.json
+            backend-postgres-security.json
           if-no-files-found: warn
           retention-days: 7
 

@@ -3,11 +3,13 @@ package com.changeguard.connector.messaging;
 import java.util.concurrent.CompletableFuture;
 
 import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.persistence.OutboxEventRepository.OutboxEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Publishes canonical merged change events to the configured code-events topic.
@@ -47,5 +49,12 @@ public class CodeEventProducer {
     public CompletableFuture<SendResult<String, Object>> publish(CodeChangeMergedEvent event) {
         Assert.notNull(event, "Code event is required");
         return kafkaTemplate.send(codeEventsTopic, event.payload().repositoryId(), event);
+    }
+
+    /** Uses the immutable destination and key recorded at intake, with a JSON object value. */
+    public CompletableFuture<SendResult<String, Object>> publish(OutboxEvent event, JsonNode payload) {
+        Assert.notNull(event, "Outbox event is required");
+        Assert.isTrue(payload != null && payload.isObject(), "Outbox payload must be a JSON object");
+        return kafkaTemplate.send(event.topic(), event.partitionKey(), payload);
     }
 }

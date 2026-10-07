@@ -5,6 +5,32 @@ deliverables. It follows the platform's intended order: foundation, canonical
 events, then GitHub ingestion. Each deliverable should be merged independently
 where practical; avoid building later stages before their prerequisites exist.
 
+## Current connector progress
+
+The connector persistence foundation is implemented: Compose includes PostgreSQL
+18.6, Flyway owns the `connector` schema, and Spring JDBC stores organization-owned
+GitHub installations, selected repositories, webhook receipts, and canonical JSONB
+outbox records. Accepted merged-change receipts and outbox records commit atomically;
+integration/delivery uniqueness absorbs concurrent redelivery. Real PostgreSQL
+tests cover migrations, ownership, disconnect/revocation, duplicates, and rollback.
+The HTTP processor verifies raw-byte HMAC before parsing, resolves the internal
+organization through the stored installation binding, checks the active selected
+repository, and commits supported merges before returning `202`. Verified
+unsupported activity is ignored; invalid signatures/payloads and unconnected
+repositories are rejected. A scheduled relay leases due events, publishes their
+stored JSON envelopes to Kafka, and marks success after acknowledgement. Retry
+backoff and lease expiry survive restart; downstream consumers must deduplicate.
+Real PostgreSQL and embedded Kafka tests cover the complete HTTP-to-publication
+flow, redelivery, acknowledgement failures, and worker recovery.
+See [the persistence diagram and API](../../backend/README.md#connector-persistence)
+and [relay behavior](../../backend/README.md#outbox-relay).
+
+This is part of Deliverables 1, 4, and 7, not completion of the GitHub integration.
+The backend parent/Change Service, shared Avro/Schema Registry, authorized GitHub
+App setup APIs, installation lifecycle reconciliation, downstream consumers, and
+the first live UI timeline remain to be built. `503` now means durable database
+processing failed; a Kafka outage leaves accepted events pending for relay retry.
+
 ## GitHub is hosted; ChangeGuard runs locally during development
 
 The initial integration targets **GitHub.com**, which is already hosted by
