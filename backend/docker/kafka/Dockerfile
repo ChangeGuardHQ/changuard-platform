@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1.27.1
-FROM eclipse-temurin:21.0.12.1_1-jre-alpine-3.24 AS dependency-patches
+# syntax=mirror.gcr.io/docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS dependency-patches
 
 WORKDIR /patches
 ENV JACKSON_VERSION=2.21.7 LZ4_VERSION=1.11.4
@@ -26,7 +26,7 @@ RUN set -eu; \
         printf '%s  %s\n' "$checksum" "$jar" | sha256sum -c -; \
     done < SHA256SUMS
 
-FROM apache/kafka:4.2.2@sha256:1213eb3943d551e5ed1fca7a4e109001cee35770b66a02a0c37a8964efe09b69 AS runtime
+FROM mirror.gcr.io/apache/kafka:4.2.2@sha256:1213eb3943d551e5ed1fca7a4e109001cee35770b66a02a0c37a8964efe09b69 AS runtime
 
 LABEL org.opencontainers.image.title="ChangeGuard Kafka" \
       org.opencontainers.image.version="4.2.2-security.2"

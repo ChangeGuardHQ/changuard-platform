@@ -242,7 +242,14 @@ summaries in the job log; secret findings show only rule and location metadata,
 never matched credential contents. Semgrep runs on every workflow invocation,
 fails on findings or scanner errors, and saves JSON/SARIF reports as
 `backend-sast`. Its scanner image and upstream rules are pinned, and the scan
-runs without network access or an account.
+runs without network access or an account. The image is pulled from
+`mirror.gcr.io` using the same verified digest to avoid Docker Hub's anonymous
+pull limit; see the [shared CI setup](../README.md#25-cicd).
+
+Docker builds also pull the digest-pinned PostgreSQL, Kafka, Temurin, Dockerfile
+frontend, and BuildKit images through that mirror. PostgreSQL smoke tests use the
+same upstream digest, and backend CI uses a mirrored Ryuk image for Testcontainers
+cleanup. The integration suite continues to use the locally built hardened images.
 
 CodeQL Java analysis with the extended security queries runs automatically for
 public repositories. For a private repository, enable GitHub Code Security and

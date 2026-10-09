@@ -2169,6 +2169,15 @@ and SARIF reports as `backend-sast` and `frontend-sast`. Its scanner image is
 pinned by version and digest, and its Java/Spring and JavaScript/TypeScript/React
 rules are checked out at a fixed upstream commit. Scans run with network access
 disabled and do not require a Semgrep account. Actions are pinned to commit IDs.
+The workflows pull the verified, digest-pinned Semgrep and BuildKit images from
+[Google's public Docker Hub cache](https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images)
+at `mirror.gcr.io` to avoid Docker Hub's anonymous pull limit. All Dockerfiles also
+use that mirror for the digest-pinned Dockerfile frontend and PostgreSQL, Kafka,
+Temurin, and Node base images. The PostgreSQL smoke test and default integration
+test image use the same mirrored PostgreSQL digest. Backend CI pins the mirrored
+Ryuk cleanup helper separately, leaving locally built integration images intact.
+When updating an image version, verify that its pinned digest is available from
+the mirror before changing it.
 Component/workflow/Compose changes trigger checks, with
 weekly runs to refresh security results.
 

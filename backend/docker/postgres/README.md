@@ -6,6 +6,11 @@ image pinned to its multi-platform digest. The server version, PostgreSQL 18 dat
 layout, and SQL storage format are retained. Connector-owned tables and migrations
 are described in [connector persistence](../../README.md#connector-persistence).
 
+The Dockerfile and compatibility smoke test pull the upstream image through
+`mirror.gcr.io` using the same PostgreSQL digest. The Dockerfile frontend is also
+mirrored and digest-pinned. This avoids Docker Hub's anonymous pull limit during
+both image builds and verification; see the [shared CI setup](../../../README.md#25-cicd).
+
 ## Image build subsystem
 
 The upstream image bundles `gosu` 1.19 compiled with Go 1.24.6. On October 7, 2026,
@@ -18,7 +23,7 @@ cannot switch to the PostgreSQL operating-system user. The final image defaults 
 
 ```mermaid
 flowchart TD
-    Base["Official PostgreSQL 18.6 / Alpine 3.24<br/>version and digest pinned"] --> Package["Install su-exec 0.3-r0"]
+    Base["Official PostgreSQL 18.6 / Alpine 3.24<br/>digest pinned; pulled via mirror.gcr.io"] --> Package["Install su-exec 0.3-r0"]
     Package --> Patch["Verify and replace the sole<br/>gosu entrypoint call"]
     Patch --> Remove["Remove the old Go binary"]
     Remove --> Verify["Check privilege drop to postgres"]
