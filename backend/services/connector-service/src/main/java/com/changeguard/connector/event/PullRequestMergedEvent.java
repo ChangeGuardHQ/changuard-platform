@@ -2,6 +2,7 @@ package com.changeguard.connector.event;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import com.changeguard.connector.github.dto.GitHubMergedPullRequest;
@@ -9,14 +10,14 @@ import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 /**
- * Immutable version-one event describing a change merged into a repository.
+ * Immutable version-one event describing a pull request merged into a repository.
  * Tenant and integration identifiers must come from trusted integration
  * context. Timestamps are supplied by the caller; receipt time must not replace
  * merge time.
  *
  * @param eventId stable identity used by consumers to detect duplicate
  * deliveries
- * @param eventType the fixed {@code CodeChangeMerged} event type
+ * @param eventType the fixed {@code PullRequestMerged} event type
  * @param eventVersion the supported schema version, currently {@code 1}
  * @param occurredAt the time the provider reports the change was merged
  * @param receivedAt the time this delivery was received by the connector
@@ -27,7 +28,7 @@ import org.springframework.util.StringUtils;
  * unavailable
  * @param payload the merged change and original delivery identity
  */
-public record CodeChangeMergedEvent(
+public record PullRequestMergedEvent(
         String eventId,
         String eventType,
         int eventVersion,
@@ -39,15 +40,19 @@ public record CodeChangeMergedEvent(
         Correlation correlation,
         Payload payload) {
 
-    public static final String EVENT_TYPE = "CodeChangeMerged";
+    public static final String EVENT_TYPE = "PullRequestMerged";
     public static final int EVENT_VERSION = 1;
+    // Preserve IDs already accepted before the canonical type was finalized.
+    private static final String DELIVERY_IDENTITY_NAMESPACE = "CodeChangeMerged:github:";
 
-    public CodeChangeMergedEvent {
+    public PullRequestMergedEvent {
         Assert.hasText(eventId, "Event ID is required");
         Assert.isTrue(EVENT_TYPE.equals(eventType), "Unsupported merged change event type");
         Assert.isTrue(eventVersion == EVENT_VERSION, "Unsupported merged change event version");
         Assert.notNull(occurredAt, "Merge timestamp is required");
         Assert.notNull(receivedAt, "Receipt timestamp is required");
+        occurredAt = occurredAt.truncatedTo(ChronoUnit.MICROS);
+        receivedAt = receivedAt.truncatedTo(ChronoUnit.MICROS);
         Assert.hasText(organizationId, "Organization ID is required");
         Assert.notNull(source, "Event source is required");
         Assert.notNull(payload, "Merged change payload is required");
@@ -69,7 +74,7 @@ public record CodeChangeMergedEvent(
      * @throws IllegalArgumentException if required merge or envelope data is
      * missing
      */
-    public static CodeChangeMergedEvent fromGitHub(
+    public static PullRequestMergedEvent fromGitHub(
             GitHubMergedPullRequest pullRequest,
             String organizationId,
             String integrationId,
@@ -85,11 +90,11 @@ public record CodeChangeMergedEvent(
                 ? new Actor(ActorType.UNKNOWN, pullRequest.actorLogin()) : null;
 
         // Length prefixes keep distinct identity components unambiguous.
-        String identity = EVENT_TYPE + ":github:"
+        String identity = DELIVERY_IDENTITY_NAMESPACE
                 + identityPart(organizationId) + identityPart(integrationId)
                 + identityPart(pullRequest.deliveryId());
         String eventId = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8)).toString();
-        return new CodeChangeMergedEvent(eventId, EVENT_TYPE, EVENT_VERSION, pullRequest.mergedAt(), receivedAt,
+        return new PullRequestMergedEvent(eventId, EVENT_TYPE, EVENT_VERSION, pullRequest.mergedAt(), receivedAt,
                 organizationId, source, actor, null, payload);
     }
 

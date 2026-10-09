@@ -1,0 +1,110 @@
+{
+  "type": "record",
+  "name": "CommitCreated",
+  "namespace": "com.changeguard.events.code",
+  "doc": "ChangeGuard CommitCreated version 1. Shared flat envelope plus a typed provider-neutral payload.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "Stable delivery identity. Consumers deduplicate by this value."
+    },
+    {
+      "name": "eventType",
+      "type": "string",
+      "default": "CommitCreated",
+      "doc": "Canonical discriminator: CommitCreated."
+    },
+    {
+      "name": "eventVersion",
+      "type": "int",
+      "default": 1,
+      "doc": "Semantic contract version; distinct from the registry subject version and schema ID."
+    },
+    {
+      "name": "occurredAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros"
+      },
+      "doc": "Provider occurrence time, UTC at microsecond precision."
+    },
+    {
+      "name": "receivedAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros"
+      },
+      "doc": "First accepted receipt time, UTC at microsecond precision."
+    },
+    {
+      "name": "organizationId",
+      "type": "string",
+      "doc": "Trusted ChangeGuard organization owner, not a provider organization field."
+    },
+    {
+      "name": "source",
+      "type": "com.changeguard.events.common.EventSource"
+    },
+    {
+      "name": "actor",
+      "type": [
+        "null",
+        "com.changeguard.events.common.EventActor"
+      ],
+      "default": null
+    },
+    {
+      "name": "correlation",
+      "type": [
+        "null",
+        "com.changeguard.events.common.EventCorrelation"
+      ],
+      "default": null
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "CommitCreatedPayload",
+        "fields": [
+          {
+            "name": "deliveryId",
+            "type": "string",
+            "doc": "Provider delivery identity; deduplication is scoped by organization and integration."
+          },
+          {
+            "name": "repositoryId",
+            "type": "string",
+            "doc": "Provider repository ID as a string; do not convert to floating point."
+          },
+          {
+            "name": "repositoryFullName",
+            "type": "string"
+          },
+          {
+            "name": "commitSha",
+            "type": "string",
+            "doc": "Full commit SHA; one canonical event per commit in a provider delivery."
+          },
+          {
+            "name": "commitMessage",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "branch",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          }
+        ]
+      }
+    }
+  ]
+}

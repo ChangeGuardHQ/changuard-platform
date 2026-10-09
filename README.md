@@ -172,7 +172,7 @@ Every important lifecycle activity should be represented as a canonical event.
 Examples:
 
 ```text
-CodeChangeMerged
+PullRequestMerged
 BuildCompleted
 DeploymentCompleted
 ServiceHealthDegraded
@@ -466,7 +466,7 @@ only where justified.
 Apache Kafka
 Kafka Streams
 Schema Registry
-Avro or Protobuf
+Avro
 ```
 
 Preferred initial direction:
@@ -520,7 +520,7 @@ The current Compose stack runs the frontend shell, Connector Service, Kafka, and
 The connector owns migrated integration, repository-selection, receipt, and outbox tables.
 The connector verifies signed merged-PR deliveries, resolves stored installation
 ownership, and commits receipts/events before returning `202`. Its scheduled outbox
-relay publishes JSON to Kafka after leasing durable work. The UI has no live platform data.
+relay publishes registered Avro to Kafka after leasing durable work. The UI has no live platform data.
 
 | System or subsystem | Status | Diagram and responsibility |
 | --- | --- | --- |
@@ -533,7 +533,7 @@ relay publishes JSON to Kafka after leasing durable work. The UI has no live pla
 | Immutable audit history and actor attribution | Planned V1 | [Audit Service](#124-audit-service), [AI audit model](#18-ai-audit-model) |
 | API Gateway and Query/BFF | Planned V1 | [Read aggregation](#125-querybff-service), [API routing](#19-api-design) |
 | Kafka broker, partitions, and consumer groups | Partial | [Kafka](#10-kafka-design), [image build and smoke test](backend/docker/kafka/README.md) |
-| Canonical contracts and Schema Registry | Partial / Planned V1 | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
+| Canonical contracts and Schema Registry | Code schemas and merged-PR Avro publication implemented; other adapters planned | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
 | PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [PostgreSQL runtime](backend/docker/postgres/README.md), [cache](#14-redis-strategy) |
 | Transactional outbox, deduplication, and failure recovery | Connector intake, leases and retry relay implemented; consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
 | Authentication, authorization, and secrets | Partial | [Security](#20-security), [current connector rules](backend/README.md#security-and-observability) |
@@ -734,8 +734,8 @@ Kafka should be used for:
 # 10. Kafka Design
 
 **Status: partial.** Compose provides one KRaft node acting as broker and controller
-with a persistent volume. `CodeEventProducer` can publish JSON to
-`changeguard.code-events` through the scheduled outbox relay; downstream consumers, other
+with a persistent volume. `CodeEventProducer` publishes registered Avro to
+`changeguard.code-events.v1` through the scheduled outbox relay; downstream consumers, other
 topic families, retention policies, and schema enforcement are planned. Each
 consumer group receives its own copy of a topic's records; consumers within a
 group divide its partitions.
@@ -779,7 +779,7 @@ It provides:
 Recommended V1 topics:
 
 ```text
-changeguard.code-events
+changeguard.code-events.v1
 changeguard.build-events
 changeguard.deployment-events
 changeguard.runtime-events
@@ -860,27 +860,26 @@ Audit and lifecycle history may require significantly longer retention than tran
 
 ## 10.6 Schema Registry
 
-**Status: planned V1.** Versioned Avro contracts and compatibility checks govern
-event evolution. Producers serialize against a registered schema; consumers
-resolve that schema to decode the envelope and typed payload. The current
-connector uses JSON without Schema Registry integration.
+**Status: implemented for the V1 code-event catalog.** The shared module defines
+`PullRequestOpened`, `PullRequestMerged`, and `CommitCreated`; the merged-PR
+pipeline publishes registered Avro. Connector startup registers reviewed schemas
+under `TopicRecordNameStrategy` subjects with `BACKWARD_TRANSITIVE` compatibility.
+Serializers use exact schema lookup with automatic registration disabled.
+See [shared contracts and evolution rules](backend/event-contracts/README.md) and
+[Registry startup, storage, and verification](backend/docker/schema-registry/README.md).
 
 ```mermaid
 flowchart LR
     Schemas["Versioned event schemas"] --> CI["Compatibility checks in CI"]
     CI -->|"accepted evolution"| Registry["Schema Registry"]
-    Producer["Producer serializer"] -->|"register / resolve schema"| Registry
+    Producer["Producer serializer"] -->|"resolve reviewed schema"| Registry
     Producer -->|"schema-aware event"| Kafka["Kafka"]
     Kafka --> Consumer["Consumer deserializer"]
     Consumer -->|"resolve writer schema"| Registry
     Consumer --> Domain["Typed domain processing"]
 ```
 
-Events should not be unmanaged JSON.
-
-Use a schema registry.
-
-Preferred direction:
+The implemented Kafka value format is:
 
 ```text
 Apache Avro
@@ -900,12 +899,14 @@ Goals:
 
 # 11. Canonical Event Model
 
-**Status: partial.** `CodeChangeMergedEvent` implements a version-one JSON envelope
-with a deterministic event ID, trusted organization/integration context, merge
-time, receipt time, and repository/PR/commit details. Other event types and shared
-Avro contracts are planned. The current emitted type is `CodeChangeMerged`; the
-catalog and GitHub delivery plan use `PullRequestMerged` for the target contract.
-That naming difference must be resolved when shared schemas are implemented.
+**Status: implemented shared V1 code contracts and merged-PR adapter.**
+`PullRequestMerged` is the finalized event name, with a stable event ID, trusted
+organization/integration context, UTC microsecond timestamps, and typed merge
+payload. The shared Avro schemas cover all three code-event types; opened-PR and
+commit ingestion remain planned. The connector stores JSONB and publishes binary
+Avro on `changeguard.code-events.v1`. Historical `CodeChangeMerged` outbox rows
+are upcast without changing their stored envelope or identity; existing JSON
+history remains on the earlier topic. See [the cutover guide](backend/event-contracts/README.md#legacy-event-cutover-subsystem).
 
 ```mermaid
 flowchart LR
@@ -2151,11 +2152,13 @@ Terraform
 GitHub Actions workflows are maintained independently at
 `.github/workflows/frontend_ci.yml` and `.github/workflows/backend_ci.yml`.
 Frontend CI runs lint, TypeScript checks, all unit and integration tests, and the
-production build. Backend CI runs Maven verification for the standalone
-`backend/services/connector-service` project on Java 21. Both workflows have
+production build. Backend CI verifies the `backend/pom.xml` reactor on Java 21,
+including shared Avro contracts and the Connector Service. Both workflows have
 independent Semgrep source scans, dependency/secret/configuration scanning, and container
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.
+Backend source scans resolve the Maven reactor first so inherited and transitive
+versions are available locally even when repository requests are rate limited.
 HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
 artifacts. Backend Trivy scans also print package, CVE, installed/fixed-version,
 and secret-rule/location summaries in job logs without printing matched secrets.
@@ -2166,6 +2169,15 @@ and SARIF reports as `backend-sast` and `frontend-sast`. Its scanner image is
 pinned by version and digest, and its Java/Spring and JavaScript/TypeScript/React
 rules are checked out at a fixed upstream commit. Scans run with network access
 disabled and do not require a Semgrep account. Actions are pinned to commit IDs.
+The workflows pull the verified, digest-pinned Semgrep and BuildKit images from
+[Google's public Docker Hub cache](https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images)
+at `mirror.gcr.io` to avoid Docker Hub's anonymous pull limit. All Dockerfiles also
+use that mirror for the digest-pinned Dockerfile frontend and PostgreSQL, Kafka,
+Temurin, and Node base images. The PostgreSQL smoke test and default integration
+test image use the same mirrored PostgreSQL digest. Backend CI pins the mirrored
+Ryuk cleanup helper separately, leaving locally built integration images intact.
+When updating an image version, verify that its pinned digest is available from
+the mirror before changing it.
 Component/workflow/Compose changes trigger checks, with
 weekly runs to refresh security results.
 
@@ -2197,9 +2209,11 @@ exact versions matching the lockfile.
 | Node.js | `24.21.0` |
 | Eclipse Temurin | `21.0.12.1+1` |
 | Alpine Docker base | `3.24` |
-| Kafka | `4.2.2` (image `4.2.2-security.1`) |
+| Kafka | `4.2.2` (image `4.2.2-security.2`) |
 | PostgreSQL | `18.6-alpine3.24` base digest pinned; local image `18.6-security.1` with `su-exec 0.3-r0` |
 | Flyway / PostgreSQL JDBC / Testcontainers | `11.14.1` / `42.7.13` / `2.0.5` (Spring Boot BOM) |
+| Avro / Schema Registry | `1.12.2` / `8.3.2` (local Registry `8.3.2-security.2`, HTTP Core `5.4.3`) |
+| LZ4 Java (connector, Registry, broker) | `1.11.4` |
 | Connector Jackson BOMs | `2.21.7` (Flyway dependencies) / `3.1.7` (application mapper) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
 | Kafka libexpat | `2.8.5-r0` |
@@ -2295,8 +2309,9 @@ for early production.
 
 **Status: partial.** Frontend unit/route/API-client tests, backend component tests,
 and real PostgreSQL migration/persistence tests run today, including signed HTTP
-intake through the scheduled outbox relay to an embedded Kafka broker and consumed
-JSON record. Container startup and Kafka message smoke checks also run. Downstream
+intake through the scheduled outbox relay to real Kafka and Schema Registry
+containers, consuming generated Avro records and checking schema evolution.
+Container startup, catalog readiness, and Kafka message smoke checks also run. Downstream
 domain consumer integration, schema contracts, full lifecycle end-to-end,
 and performance suites are planned. Each layer verifies a different boundary;
 component mocks alone do not demonstrate a working ingestion-to-UI pipeline.
@@ -2386,6 +2401,9 @@ V1 should be built in stages.
 
 ## Phase 1 — Platform foundation
 
+The monorepo, backend parent, frontend shell, Compose, PostgreSQL, Kafka, and
+Schema Registry are implemented. Redis and the Prometheus/Grafana stack remain planned.
+
 Build:
 
 - monorepo structure
@@ -2406,6 +2424,11 @@ Completion criteria:
 - basic dashboard visible in Grafana
 
 ## Phase 2 — Canonical event system
+
+The shared code-event envelope, generated Avro records, Registry integration,
+versioning rules, and merged-PR producer are implemented. Real wire tests verify
+typed consumption and compatibility rejection. Service consumers and their
+durable event deduplication remain to be built.
 
 Build:
 

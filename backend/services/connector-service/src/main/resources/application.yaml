@@ -49,9 +49,9 @@ spring:
       # Require acknowledgment from every in-sync replica for durable writes.
       acks: all
 
-      # Serialize Kafka keys as strings and values as JSON payloads.
+      # Keys stay strings; values use the registered Avro wire contract.
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
 
       properties:
         # Deduplicate producer transport retries; outbox recovery remains at-least-once.
@@ -61,8 +61,14 @@ spring:
         request.timeout.ms: 10000
         delivery.timeout.ms: 30000
 
-        # Keep JSON payloads free of Java type metadata for compatibility.
-        spring.json.add.type.headers: false
+        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8082}
+        # Startup registers the reviewed catalog; publishing cannot register arbitrary schemas.
+        auto.register.schemas: false
+        use.latest.version: false
+        normalize.schemas: true
+        value.subject.name.strategy: io.confluent.kafka.serializers.subject.TopicRecordNameStrategy
+        http.connect.timeout.ms: 3000
+        http.read.timeout.ms: 3000
 
 server:
   # HTTP port exposed by the connector service.
@@ -113,7 +119,7 @@ changeguard:
     topics:
       # Topic used to receive code-related events emitted by the connector.
       # CODE_EVENTS_TOPIC allows deployment-specific topic selection.
-      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events}
+      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events.v1}
 
   github:
     # Shared secret used to validate incoming GitHub webhook signatures.

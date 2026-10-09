@@ -18,16 +18,19 @@ organization through the stored installation binding, checks the active selected
 repository, and commits supported merges before returning `202`. Verified
 unsupported activity is ignored; invalid signatures/payloads and unconnected
 repositories are rejected. A scheduled relay leases due events, publishes their
-stored JSON envelopes to Kafka, and marks success after acknowledgement. Retry
+stored JSON envelopes as registered Avro to Kafka, and marks success after acknowledgement. Retry
 backoff and lease expiry survive restart; downstream consumers must deduplicate.
-Real PostgreSQL and embedded Kafka tests cover the complete HTTP-to-publication
-flow, redelivery, acknowledgement failures, and worker recovery.
+Real PostgreSQL, Kafka, and Schema Registry tests cover the complete HTTP-to-Avro
+publication flow, redelivery, compatibility rejection, and worker recovery.
 See [the persistence diagram and API](../../backend/README.md#connector-persistence)
 and [relay behavior](../../backend/README.md#outbox-relay).
 
-This is part of Deliverables 1, 4, and 7, not completion of the GitHub integration.
-The backend parent/Change Service, shared Avro/Schema Registry, authorized GitHub
-App setup APIs, installation lifecycle reconciliation, downstream consumers, and
+This is part of Deliverables 1, 2, 4, and 7, not completion of the GitHub integration.
+The backend parent, shared Avro catalog, and Schema Registry are implemented.
+`PullRequestMerged` is canonical; historical `CodeChangeMerged` outbox records
+upcast into the Avro stream while preserving identity. Opened-PR and commit
+schemas are ready, and their webhook adapters remain planned. Change Service,
+authorized GitHub App setup APIs, installation lifecycle reconciliation, downstream consumers, and
 the first live UI timeline remain to be built. `503` now means durable database
 processing failed; a Kafka outage leaves accepted events pending for relay retry.
 
@@ -137,6 +140,13 @@ service-to-PostgreSQL and producer-to-Kafka integration tests.
 **Depends on:** README V1 Delivery Plan Phase 1.
 
 ### 2. Define and validate the canonical code event contract
+
+**Status: implemented schemas and merged-PR publication.** The
+[shared module](../../backend/event-contracts/README.md) generates Avro records,
+checks released compatibility, and registers the catalog under `BACKWARD_TRANSITIVE`.
+[Schema Registry](../../backend/docker/schema-registry/README.md) persists history
+in Kafka and rejects incompatible registrations. Other code-event adapters are
+tracked in the intake deliverable below.
 
 **Deliverable:** versioned Avro schemas for `PullRequestOpened`,
 `PullRequestMerged`, and `CommitCreated`, using the common event envelope.

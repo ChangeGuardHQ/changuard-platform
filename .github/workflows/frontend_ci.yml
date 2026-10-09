@@ -160,7 +160,8 @@ jobs:
 
       - name: Scan JavaScript, TypeScript, and React sources
         env:
-          SEMGREP_IMAGE: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
+          # Use the verified public cache to avoid Docker Hub's anonymous pull limit.
+          SEMGREP_IMAGE: mirror.gcr.io/semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
         run: |
           mkdir -p "$RUNNER_TEMP/frontend-sast"
           docker run --rm --network none \
@@ -248,7 +249,7 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           version: v0.37.1
-          driver-opts: image=moby/buildkit:v0.33.1
+          driver-opts: image=mirror.gcr.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Build frontend image
         id: build

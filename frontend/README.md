@@ -153,7 +153,9 @@ The npm audit and Trivy scans fail on HIGH or CRITICAL findings. Security JSON
 reports are uploaded even when a scan fails. Semgrep runs on every workflow
 invocation, fails on findings or scanner errors, and retains JSON/SARIF reports
 as `frontend-sast`. Its scanner image and upstream rules are pinned, and the
-scan runs without network access or an account.
+scan runs without network access or an account. The image is pulled from
+`mirror.gcr.io` using the same verified digest to avoid Docker Hub's anonymous
+pull limit; see the [shared CI setup](../README.md#25-cicd).
 
 CodeQL with extended JavaScript/TypeScript security queries runs automatically
 for public repositories. For a private repository, enable GitHub Code Security
@@ -166,7 +168,9 @@ See the [shared CodeQL setup instructions](../README.md#25-cicd).
 Frontend, workflow, and Compose changes trigger checks, and a weekly schedule
 refreshes scans. External actions are pinned to commit IDs. CI and Docker use
 Node.js 24.21.0, and CI runners use Ubuntu 24.04. Docker pins the Node image to
-`24.21.0-alpine3.24`. Direct dependencies use exact versions matching the lockfile;
+`24.21.0-alpine3.24` and its multi-platform digest. The Node base, Dockerfile
+frontend, and CI BuildKit images are pulled through `mirror.gcr.io` to avoid
+Docker Hub's anonymous pull limit. Direct dependencies use exact versions matching the lockfile;
 `.npmrc` also saves exact versions for future installs. The Docker dependency
 stage installs npm packages, and the runtime
 stage launches the Vite development server directly without bundled npm/Yarn

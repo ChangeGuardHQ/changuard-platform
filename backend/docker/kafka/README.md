@@ -1,12 +1,12 @@
 # Patched Kafka image
 
-Compose and backend CI build `changuard-kafka:4.2.2-security.1` from this directory.
+Compose and backend CI build `changuard-kafka:4.2.2-security.2` from this directory.
 The base is Apache Kafka 4.2.2, pinned to its multi-platform image digest. The
 broker version, startup configuration, and data-volume format stay at 4.2.2.
 
 ## Image build subsystem
 
-**Status: implemented.** The build fetches the pinned Jackson modules in a
+**Status: implemented.** The build fetches the pinned Jackson modules and LZ4 in a
 separate stage and verifies each artifact against `SHA256SUMS`. The runtime stage
 patches libexpat, removes replaced JARs and incompatible class-data archives,
 copies verified JARs, and returns to `appuser`. This produces the Kafka image
@@ -14,12 +14,12 @@ used by both Compose and backend CI.
 
 ```mermaid
 flowchart LR
-    Manifest["SHA256SUMS and pinned Jackson<br/>version"] --> Downloads["Separate download stage"]
+    Manifest["SHA256SUMS and pinned Jackson / LZ4<br/>versions"] --> Downloads["Separate download stage"]
     Downloads --> Verify["Verify every JAR checksum"]
     Base["Digest-pinned Apache Kafka<br/>base"] --> Patch["Patch libexpat; remove old<br/>JARs and CDS settings"]
     Verify -->|"copy verified JARs"| Runtime["Patched runtime as appuser"]
     Patch --> Runtime
-    Runtime --> Image["changuard-kafka:4.2.2-security.1"]
+    Runtime --> Image["changuard-kafka:4.2.2-security.2"]
     Image --> Compose["Local Compose broker"]
     Image --> CI["Backend CI smoke test and<br/>image scan"]
 ```
@@ -59,14 +59,16 @@ flowchart LR
 
 ## Dependency patches and operation
 
-The upstream image still contains five HIGH findings as of October 4, 2026.
-This image applies the following stable dependency patches:
+The upstream image had five HIGH findings on October 4, 2026. The October 9
+database also flags its LZ4 dependency for `CVE-2026-106451`. This image applies
+the following stable dependency patches:
 
 | Dependency | Upstream version | Patched version | Findings addressed |
 | --- | --- | --- | --- |
 | libexpat | `2.8.4-r0` | `2.8.5-r0` | `CVE-2026-93990` |
 | Jackson core | `2.21.6` | `2.21.7` | `CVE-2026-89407`, `CVE-2026-89425` |
 | Jackson databind | `2.21.6` | `2.21.7` | `CVE-2026-91776`, `CVE-2026-91777` |
+| LZ4 Java | `1.11.1` | `1.11.4` | `CVE-2026-106451` |
 
 Nine Jackson modules in the Kafka distribution are updated to 2.21.7;
 annotations remain at 2.21, matching the
@@ -74,6 +76,12 @@ annotations remain at 2.21, matching the
 The [SHA256SUMS](SHA256SUMS) file pins the artifact checksums published by Maven
 Central. Downloads are verified in a separate build stage before the JARs enter
 the runtime image. Old JARs are removed, and the image still runs as `appuser`.
+
+LZ4 1.11.4 fixes native-library extraction through predictable temporary files;
+see the [maintainer's advisory](https://github.com/yawkat/lz4-java/security/advisories/GHSA-mcr4-qmvw-px4g).
+The backend parent also manages this version for the connector and Registry.
+Their real Kafka wire test enables LZ4 compression to check interoperability
+through the patched broker and client libraries.
 
 Apache's prebuilt JVM class-data archives were generated with the old JARs.
 The Dockerfile removes those archives and their startup options so both storage

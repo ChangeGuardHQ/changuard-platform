@@ -55,7 +55,7 @@ class PersistentGitHubWebhookTests {
         var body = json.readTree(event.payload());
         assertThat(body.path("organizationId").asString()).isEqualTo("internal-org");
         assertThat(body.path("source").path("integrationId").asString()).isEqualTo("integration-a");
-        assertThat(body.path("eventType").asString()).isEqualTo("CodeChangeMerged");
+        assertThat(body.path("eventType").asString()).isEqualTo("PullRequestMerged");
         assertThat(body.path("payload").path("pullRequestTitle").asString()).isEqualTo("Fix café checkout 🌱");
         assertThat(Instant.parse(body.path("receivedAt").asString())).isBetween(before, Instant.now());
         assertThat(event.partitionKey()).isEqualTo("12345");

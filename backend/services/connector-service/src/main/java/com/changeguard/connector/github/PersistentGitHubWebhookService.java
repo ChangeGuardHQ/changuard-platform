@@ -2,7 +2,7 @@ package com.changeguard.connector.github;
 
 import java.time.Instant;
 
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import com.changeguard.connector.normalization.GitHubEventNormalizer;
 import com.changeguard.connector.persistence.ConnectorIntegrationRepository;
 import com.changeguard.connector.persistence.ConnectorIntakeStore;
@@ -45,7 +45,7 @@ public class PersistentGitHubWebhookService implements GitHubWebhookService {
             }
             var integration = integrations.findActiveGitHubInstallation(delivery.get().installationId())
                     .orElseThrow(RepositoryNotConnectedException::new);
-            var event = CodeChangeMergedEvent.fromGitHub(delivery.get().pullRequest(),
+            var event = PullRequestMergedEvent.fromGitHub(delivery.get().pullRequest(),
                     integration.organizationId(), integration.integrationId(), receivedAt);
             // The store checks and locks the active selected repository in the same transaction.
             intake.accept(event);
