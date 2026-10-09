@@ -1,7 +1,7 @@
 # ChangeGuard Schema Registry
 
 **Status: implemented.** Compose and backend integration tests use
-`changuard-schema-registry:8.3.2-security.1`, which runs the Confluent Schema Registry
+`changuard-schema-registry:8.3.2-security.2`, which runs the Confluent Schema Registry
 8.3.2 core server with the backend's patched dependencies. The connector registers
 the [shared V1 code-event catalog](../../event-contracts/README.md) before creating
 its Kafka producer.
@@ -16,6 +16,8 @@ the matching Log4j binding so startup and request failures appear in container l
 The server module explicitly uses Confluent's `kafka-clients 8.3.2-ccs`, matching
 the server's leader-election API; the connector uses Spring Boot's managed client.
 Registry's core and EE10 Jetty modules use the consistent 12.0.37 server line.
+The shared parent pins LZ4 Java 1.11.4 for `CVE-2026-106451`; the `security.2`
+runtime replaces the earlier image's vulnerable 1.11.1 dependency.
 
 ```mermaid
 flowchart TD
@@ -56,7 +58,7 @@ and Registry access controls remain deployment configuration.
 
 | Setting | Local value |
 | --- | --- |
-| `SCHEMA_REGISTRY_IMAGE` | `changuard-schema-registry:8.3.2-security.1` |
+| `SCHEMA_REGISTRY_IMAGE` | `changuard-schema-registry:8.3.2-security.2` |
 | `SCHEMA_REGISTRY_PORT` | `8082` on localhost; Registry container listens on `8081`. |
 | `SCHEMA_REGISTRY_URL` | `http://localhost:8082` for Maven clients; Compose supplies `http://schema-registry:8081`. |
 | `SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS` | `PLAINTEXT://kafka:9092` in Compose. |
@@ -98,7 +100,7 @@ leaves the outbox row pending for durable retry.
 ## Verification subsystem
 
 The real Kafka/PostgreSQL/Registry integration test consumes a signed webhook as a
-generated Avro record, checks redelivery, verifies legacy-row cutover without
+generated Avro record using LZ4-compressed Kafka batches, checks redelivery, verifies legacy-row cutover without
 rewriting storage, and confirms Registry rejection of incompatible evolution.
 Shared tests check released schema compatibility, semantic validation, nullable
 fields, Unicode, large repository IDs, and binary round trips.

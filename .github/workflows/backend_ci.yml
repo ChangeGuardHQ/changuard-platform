@@ -58,8 +58,8 @@ jobs:
       - name: Build integration infrastructure images
         run: |
           docker build --tag changuard-postgres:18.6-security.1 ../../docker/postgres
-          docker build --tag changuard-kafka:4.2.2-security.1 ../../docker/kafka
-          docker build --file ../../docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.1 ../..
+          docker build --tag changuard-kafka:4.2.2-security.2 ../../docker/kafka
+          docker build --file ../../docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.2 ../..
 
       - name: Verify backend
         run: sh ./mvnw -f ../../pom.xml --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
@@ -84,6 +84,18 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Set up Java for dependency resolution
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21.0.12+101.0.LTS"
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+
+      - name: Resolve backend dependencies before scanning
+        # Populate parent/BOM and reactor artifacts so Trivy can resolve the full graph locally.
+        run: sh backend/services/connector-service/mvnw -f backend/pom.xml --batch-mode --no-transfer-progress -DskipTests install
 
       - name: Scan backend dependencies, secrets, and Docker configuration
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -232,9 +244,9 @@ jobs:
     timeout-minutes: 30
     env:
       CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
-      KAFKA_IMAGE: changuard-kafka:4.2.2-security.1
+      KAFKA_IMAGE: changuard-kafka:4.2.2-security.2
       POSTGRES_IMAGE: changuard-postgres:18.6-security.1
-      SCHEMA_REGISTRY_IMAGE: changuard-schema-registry:8.3.2-security.1
+      SCHEMA_REGISTRY_IMAGE: changuard-schema-registry:8.3.2-security.2
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

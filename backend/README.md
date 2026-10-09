@@ -16,6 +16,11 @@ Spring Boot release. See
 Flyway introduces Jackson 2 independently of the application's Jackson 3 mapper;
 both BOMs must therefore stay patched.
 
+The backend parent manages `at.yawk.lz4:lz4-java` at 1.11.4 for the connector and
+Registry. Kafka client defaults of 1.10.1 and 1.11.1 are affected by
+[`CVE-2026-106451`](https://github.com/yawkat/lz4-java/security/advisories/GHSA-mcr4-qmvw-px4g).
+The broker image replaces its LZ4 JAR with the same checksum-verified version.
+
 The HTTP adapter, configuration, signature validation component, merged pull
 request normalizer, canonical merged change event, publisher, and PostgreSQL
 persistence foundation are implemented. Flyway owns the `connector` schema;
@@ -154,8 +159,8 @@ official 18.6 Alpine image with its vulnerable privilege helper replaced. See
 [PostgreSQL build, startup, and validation diagrams](docker/postgres/README.md).
 `POSTGRES_IMAGE` can override the Compose image. See [.env.example](../.env.example) for local defaults.
 
-Kafka uses the locally built `changuard-kafka:4.2.2-security.1` image, which
-patches the upstream image's Jackson and libexpat vulnerabilities. All dependency
+Kafka uses the locally built `changuard-kafka:4.2.2-security.2` image, which
+patches the upstream image's Jackson, libexpat, and LZ4 vulnerabilities. All dependency
 versions are pinned, and downloaded JARs are checked against their published
 SHA-256 hashes. See the [Kafka image documentation](docker/kafka/README.md) for
 the patches, JVM archive handling, and message smoke test. `KAFKA_IMAGE` can
@@ -215,7 +220,7 @@ repositories, redelivery, and `503` with transaction rollback. Relay tests cover
 delayed acknowledgement, send failures, retry timing, competing workers, stale
 leases, and recovery after an acknowledgement/database-update failure. Real Kafka
 and Schema Registry containers verify signed HTTP intake through the scheduled
-relay to a generated Avro record, legacy queued-event cutover, and rejected
+relay to a generated Avro record in an LZ4-compressed Kafka batch, legacy queued-event cutover, and rejected
 incompatible schema evolution. Full-context tests fail when
 Docker is unavailable; they do not silently skip database coverage. Backend CI
 runs this same suite and checks applied migrations in the Compose database.
@@ -260,6 +265,15 @@ findings in `gosu`'s bundled Go standard library; the hardened PostgreSQL image
 replaces that binary with Alpine's pinned native helper. Both updated images pass
 the same vulnerability/secret scan. CI runs PostgreSQL startup/data-retention
 smoke checks and all connector database tests against the hardened runtime image.
+
+On October 9, 2026, a fresh Trivy database reported four HIGH LZ4 findings across
+the backend POM graphs. The shared 1.11.4 override and `security.2` Kafka/Registry
+images address them. The source-security job now sets up Java, restores Maven's
+dependency cache, and runs the backend reactor's `install` goal with tests skipped
+before scanning. This resolves parent/BOM and local module artifacts before
+Trivy reads the POMs, avoiding incomplete scans when remote Maven requests are
+rate limited. Dependency resolution errors fail the job. The HIGH/CRITICAL gate
+continues to include unfixed findings.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
 schedule also reruns checks as vulnerability databases change. The workflows

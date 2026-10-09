@@ -44,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {"changeguard.github.webhook-secret=" + SECRET,
         "changeguard.kafka.topics.code-events=changeguard.integration.code-events.v1",
+        "spring.kafka.producer.compression-type=lz4",
         "changeguard.outbox.poll-interval=100ms"})
 @AutoConfigureMockMvc
 @Import(PostgresTestConfiguration.class)
@@ -57,12 +58,12 @@ class WebhookPublishingIntegrationTests {
     private static final Network NETWORK = Network.newNetwork();
     @Container
     private static final KafkaContainer KAFKA = new KafkaContainer(
-            DockerImageName.parse(System.getProperty("changeguard.test.kafka-image", "changuard-kafka:4.2.2-security.1"))
+            DockerImageName.parse(System.getProperty("changeguard.test.kafka-image", "changuard-kafka:4.2.2-security.2"))
                     .asCompatibleSubstituteFor("apache/kafka"))
             .withNetwork(NETWORK).withNetworkAliases("kafka").withListener("kafka:19092");
     @Container
     private static final GenericContainer<?> REGISTRY = new GenericContainer<>(
-            System.getProperty("changeguard.test.schema-registry-image", "changuard-schema-registry:8.3.2-security.1"))
+            System.getProperty("changeguard.test.schema-registry-image", "changuard-schema-registry:8.3.2-security.2"))
             .withNetwork(NETWORK).withExposedPorts(8081)
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:19092")
             .dependsOn(KAFKA).waitingFor(Wait.forHttp("/subjects").forStatusCode(200))

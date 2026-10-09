@@ -2157,6 +2157,8 @@ including shared Avro contracts and the Connector Service. Both workflows have
 independent Semgrep source scans, dependency/secret/configuration scanning, and container
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.
+Backend source scans resolve the Maven reactor first so inherited and transitive
+versions are available locally even when repository requests are rate limited.
 HIGH/CRITICAL npm audit and Trivy findings fail CI. Reports are retained as
 artifacts. Backend Trivy scans also print package, CVE, installed/fixed-version,
 and secret-rule/location summaries in job logs without printing matched secrets.
@@ -2198,10 +2200,11 @@ exact versions matching the lockfile.
 | Node.js | `24.21.0` |
 | Eclipse Temurin | `21.0.12.1+1` |
 | Alpine Docker base | `3.24` |
-| Kafka | `4.2.2` (image `4.2.2-security.1`) |
+| Kafka | `4.2.2` (image `4.2.2-security.2`) |
 | PostgreSQL | `18.6-alpine3.24` base digest pinned; local image `18.6-security.1` with `su-exec 0.3-r0` |
 | Flyway / PostgreSQL JDBC / Testcontainers | `11.14.1` / `42.7.13` / `2.0.5` (Spring Boot BOM) |
-| Avro / Schema Registry | `1.12.2` / `8.3.2` (local Registry `8.3.2-security.1`, HTTP Core `5.4.3`) |
+| Avro / Schema Registry | `1.12.2` / `8.3.2` (local Registry `8.3.2-security.2`, HTTP Core `5.4.3`) |
+| LZ4 Java (connector, Registry, broker) | `1.11.4` |
 | Connector Jackson BOMs | `2.21.7` (Flyway dependencies) / `3.1.7` (application mapper) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
 | Kafka libexpat | `2.8.5-r0` |

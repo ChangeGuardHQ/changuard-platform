@@ -92,7 +92,7 @@ services:
   # Local Kafka broker used for event-driven communication between services.
   # The container exposes a localhost listener for local clients and an internal listener for service-to-service traffic.
   kafka:
-    image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.1}
+    image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.2}
     build:
       context: ./backend/docker/kafka
       dockerfile: Dockerfile
@@ -126,7 +126,7 @@ services:
 
   # Schema history is durable in Kafka's compacted _schemas topic, not local files.
   schema-registry:
-    image: ${SCHEMA_REGISTRY_IMAGE:-changuard-schema-registry:8.3.2-security.1}
+    image: ${SCHEMA_REGISTRY_IMAGE:-changuard-schema-registry:8.3.2-security.2}
     build:
       context: ./backend
       dockerfile: docker/schema-registry/Dockerfile
