@@ -1,0 +1,113 @@
+{
+  "type": "record",
+  "name": "PullRequestOpened",
+  "namespace": "com.changeguard.events.code",
+  "doc": "ChangeGuard PullRequestOpened version 1. Shared flat envelope plus a typed provider-neutral payload.",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "Stable delivery identity. Consumers deduplicate by this value."
+    },
+    {
+      "name": "eventType",
+      "type": "string",
+      "default": "PullRequestOpened",
+      "doc": "Canonical discriminator: PullRequestOpened."
+    },
+    {
+      "name": "eventVersion",
+      "type": "int",
+      "default": 1,
+      "doc": "Semantic contract version; distinct from the registry subject version and schema ID."
+    },
+    {
+      "name": "occurredAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros"
+      },
+      "doc": "Provider occurrence time, UTC at microsecond precision."
+    },
+    {
+      "name": "receivedAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros"
+      },
+      "doc": "First accepted receipt time, UTC at microsecond precision."
+    },
+    {
+      "name": "organizationId",
+      "type": "string",
+      "doc": "Trusted ChangeGuard organization owner, not a provider organization field."
+    },
+    {
+      "name": "source",
+      "type": "com.changeguard.events.common.EventSource"
+    },
+    {
+      "name": "actor",
+      "type": [
+        "null",
+        "com.changeguard.events.common.EventActor"
+      ],
+      "default": null
+    },
+    {
+      "name": "correlation",
+      "type": [
+        "null",
+        "com.changeguard.events.common.EventCorrelation"
+      ],
+      "default": null
+    },
+    {
+      "name": "payload",
+      "type": {
+        "type": "record",
+        "name": "PullRequestOpenedPayload",
+        "fields": [
+          {
+            "name": "deliveryId",
+            "type": "string",
+            "doc": "Provider delivery identity; deduplication is scoped by organization and integration."
+          },
+          {
+            "name": "repositoryId",
+            "type": "string",
+            "doc": "Provider repository ID as a string; do not convert to floating point."
+          },
+          {
+            "name": "repositoryFullName",
+            "type": "string"
+          },
+          {
+            "name": "pullRequestNumber",
+            "type": "int"
+          },
+          {
+            "name": "pullRequestTitle",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "headCommitSha",
+            "type": "string"
+          },
+          {
+            "name": "sourceBranch",
+            "type": "string"
+          },
+          {
+            "name": "targetBranch",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}

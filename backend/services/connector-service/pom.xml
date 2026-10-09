@@ -8,10 +8,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.8</version>
-        <relativePath/>
+        <groupId>com.changeguard</groupId>
+        <artifactId>changeguard-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <groupId>com.changeguard</groupId>
@@ -24,16 +24,16 @@
         ChangeGuard external integration and event normalization service
     </description>
 
-    <properties>
-        <java.version>21</java.version>
-        <!-- Security patch overrides until the Spring Boot BOM includes these fixes. -->
-        <tomcat.version>11.0.26</tomcat.version>
-        <!-- Flyway brings Jackson 2 independently of the application's Jackson 3. -->
-        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
-        <jackson-bom.version>3.1.7</jackson-bom.version>
-    </properties>
-
     <dependencies>
+
+        <dependency>
+            <groupId>com.changeguard</groupId>
+            <artifactId>event-contracts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-avro-serializer</artifactId>
+        </dependency>
 
         <!-- Connector-owned PostgreSQL persistence and versioned migrations -->
         <dependency>
@@ -108,6 +108,16 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

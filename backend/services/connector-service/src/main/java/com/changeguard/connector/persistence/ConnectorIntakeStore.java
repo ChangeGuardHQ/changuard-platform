@@ -3,7 +3,7 @@ package com.changeguard.connector.persistence;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -44,7 +44,7 @@ public class ConnectorIntakeStore {
      * Kafka.
      */
     @Transactional
-    public boolean accept(CodeChangeMergedEvent event) {
+    public boolean accept(PullRequestMergedEvent event) {
         Assert.notNull(event, "Canonical event is required");
         Assert.isTrue("github".equals(event.source().provider()), "GitHub event source is required");
         String organizationId = event.organizationId();
@@ -66,12 +66,14 @@ public class ConnectorIntakeStore {
             throw new RepositoryNotConnectedException();
         }
 
+        // V3 retains both delivery keys for older writers. Handle either unique
+        // index so simultaneous inserts cannot race through the other key.
         UUID receiptId = UUID.randomUUID();
         int inserted = jdbc.sql("""
                 INSERT INTO connector.webhook_receipts
                     (id, organization_id, integration_id, repository_id, delivery_id, provider_event_type, received_at)
                 VALUES (:receipt, :organization, :integration, :repository, :delivery, 'pull_request', :received)
-                ON CONFLICT (organization_id, integration_id, delivery_id) DO NOTHING
+                ON CONFLICT DO NOTHING
                 """)
                 .param("receipt", receiptId).param("organization", organizationId)
                 .param("integration", integrationId).param("repository", repositoryId)

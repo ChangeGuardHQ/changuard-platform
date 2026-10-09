@@ -5,7 +5,7 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 
 import com.changeguard.connector.PostgresTestConfiguration;
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import com.changeguard.connector.github.dto.GitHubMergedPullRequest;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -57,7 +57,7 @@ class ConnectorMigrationUpgradeTests {
             var integrations = new ConnectorIntegrationRepository(jdbc);
             integrations.createGitHubIntegration(ORGANIZATION, INTEGRATION, 1001);
             integrations.connectRepository(ORGANIZATION, INTEGRATION, REPOSITORY, "acme/service", "main");
-            CodeChangeMergedEvent original = event("accepted-before-upgrade");
+            PullRequestMergedEvent original = event("accepted-before-upgrade");
             UUID receipt = UUID.randomUUID();
             assertThat(insertLegacyReceipt(jdbc, receipt, original)).isEqualTo(1);
             jdbc.sql("""
@@ -112,7 +112,7 @@ class ConnectorMigrationUpgradeTests {
                 .query(Integer.class).single()).isEqualTo(ORIGINAL_V1_CHECKSUM);
     }
 
-    private int insertLegacyReceipt(JdbcClient jdbc, UUID receipt, CodeChangeMergedEvent event) {
+    private int insertLegacyReceipt(JdbcClient jdbc, UUID receipt, PullRequestMergedEvent event) {
         return jdbc.sql("""
                 INSERT INTO connector.webhook_receipts
                     (id, organization_id, integration_id, repository_id, delivery_id, provider_event_type, received_at)
@@ -124,9 +124,9 @@ class ConnectorMigrationUpgradeTests {
                 .param("received", RECEIVED.atOffset(ZoneOffset.UTC)).update();
     }
 
-    private CodeChangeMergedEvent event(String delivery) {
+    private PullRequestMergedEvent event(String delivery) {
         var dto = new GitHubMergedPullRequest(delivery, REPOSITORY, "acme/service", 42, "Ship change",
                 "1234567890abcdef1234567890abcdef12345678", "feature", "main", "merge-user", RECEIVED.minusSeconds(30));
-        return CodeChangeMergedEvent.fromGitHub(dto, ORGANIZATION, INTEGRATION, RECEIVED);
+        return PullRequestMergedEvent.fromGitHub(dto, ORGANIZATION, INTEGRATION, RECEIVED);
     }
 }

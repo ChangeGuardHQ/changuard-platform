@@ -4,15 +4,15 @@
 FROM eclipse-temurin:21.0.12.1_1-jdk-alpine-3.24 AS build
 
 WORKDIR /workspace
-COPY .mvn .mvn
-COPY mvnw pom.xml ./
+COPY services/connector-service/.mvn .mvn
+COPY services/connector-service/mvnw pom.xml ./
 RUN chmod +x mvnw
+COPY event-contracts event-contracts
+COPY docker/schema-registry/pom.xml docker/schema-registry/pom.xml
+COPY services/connector-service/pom.xml services/connector-service/pom.xml
+COPY services/connector-service/src services/connector-service/src
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw --batch-mode --no-transfer-progress dependency:go-offline
-
-COPY src src
-RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw --batch-mode --no-transfer-progress -DskipTests package
+    ./mvnw --batch-mode --no-transfer-progress -pl services/connector-service -am -DskipTests package
 
 # Runtime stage: run the application in a minimal Alpine image.
 FROM eclipse-temurin:21.0.12.1_1-jre-alpine-3.24 AS runtime
@@ -21,7 +21,7 @@ WORKDIR /app
 # Create a dedicated non-root user for the service to improve container security.
 RUN addgroup -S -g 10001 changeguard \
     && adduser -S -D -H -u 10001 -G changeguard changeguard
-COPY --from=build --chown=10001:10001 /workspace/target/*.jar /app/app.jar
+COPY --from=build --chown=10001:10001 /workspace/services/connector-service/target/*.jar /app/app.jar
 
 USER 10001:10001
 EXPOSE 8081

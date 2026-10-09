@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "EventSource",
+  "namespace": "com.changeguard.events.common",
+  "doc": "Provider and trusted ChangeGuard integration identity. No credentials or raw webhook data.",
+  "fields": [
+    {
+      "name": "provider",
+      "type": "string"
+    },
+    {
+      "name": "integrationId",
+      "type": "string"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ import java.util.stream.IntStream;
 
 import com.changeguard.connector.PostgresTestConfiguration;
 import com.changeguard.connector.config.OutboxProperties;
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import com.changeguard.connector.github.dto.GitHubMergedPullRequest;
 import com.changeguard.connector.persistence.ConnectorIntegrationRepository;
 import com.changeguard.connector.persistence.ConnectorIntakeStore;
@@ -54,7 +54,7 @@ class OutboxPublisherTests {
         integrations.connectRepository("org-a", "integration-a", "12345", "acme/service", "main");
         var merge = new GitHubMergedPullRequest("delivery-1", "12345", "acme/service", 42, "Ship change",
                 "cccccccccccccccccccccccccccccccccccccccc", "feature", "main", "merger", Instant.now());
-        intake.accept(CodeChangeMergedEvent.fromGitHub(merge, "org-a", "integration-a", Instant.now()));
+        intake.accept(PullRequestMergedEvent.fromGitHub(merge, "org-a", "integration-a", Instant.now()));
     }
 
     @Test

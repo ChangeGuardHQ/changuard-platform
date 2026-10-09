@@ -2,7 +2,7 @@ package com.changeguard.connector.messaging;
 
 import java.util.concurrent.CompletableFuture;
 
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import com.changeguard.connector.persistence.OutboxEventRepository.OutboxEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -20,20 +20,24 @@ public class CodeEventProducer {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final String codeEventsTopic;
+    private final PullRequestMergedAvroMapper avro;
 
     /**
      * Creates a publisher using the service's Kafka infrastructure.
      *
-     * @param kafkaTemplate the template configured for String keys and JSON values
+     * @param kafkaTemplate the template configured for String keys and registered Avro values
      * @param codeEventsTopic the destination topic configured by the application
      */
     public CodeEventProducer(
             KafkaTemplate<String, Object> kafkaTemplate,
-            @Value("${changeguard.kafka.topics.code-events}") String codeEventsTopic) {
+            @Value("${changeguard.kafka.topics.code-events}") String codeEventsTopic,
+            PullRequestMergedAvroMapper avro) {
         Assert.notNull(kafkaTemplate, "Kafka template is required");
         Assert.hasText(codeEventsTopic, "Code events topic must not be blank");
+        Assert.notNull(avro, "Avro mapper is required");
         this.kafkaTemplate = kafkaTemplate;
         this.codeEventsTopic = codeEventsTopic;
+        this.avro = avro;
     }
 
     /**
@@ -46,15 +50,26 @@ public class CodeEventProducer {
      * @return the send future carrying broker acknowledgement metadata or a failure
      * @throws IllegalArgumentException if the event is null
      */
-    public CompletableFuture<SendResult<String, Object>> publish(CodeChangeMergedEvent event) {
+    public CompletableFuture<SendResult<String, Object>> publish(PullRequestMergedEvent event) {
         Assert.notNull(event, "Code event is required");
-        return kafkaTemplate.send(codeEventsTopic, event.payload().repositoryId(), event);
+        return kafkaTemplate.send(codeEventsTopic, event.payload().repositoryId(), avro.toAvro(event));
     }
 
-    /** Uses the immutable destination and key recorded at intake, with a JSON object value. */
+    /** Uses the recorded destination/key and maps the durable envelope to registered Avro. */
     public CompletableFuture<SendResult<String, Object>> publish(OutboxEvent event, JsonNode payload) {
         Assert.notNull(event, "Outbox event is required");
         Assert.isTrue(payload != null && payload.isObject(), "Outbox payload must be a JSON object");
-        return kafkaTemplate.send(event.topic(), event.partitionKey(), payload);
+        var record = avro.fromOutbox(payload);
+        Assert.isTrue(event.eventId().equals(record.getEventId())
+                && event.organizationId().equals(record.getOrganizationId())
+                && event.integrationId().equals(record.getSource().getIntegrationId())
+                && event.eventType().equals(payload.path("eventType").asString())
+                && event.eventVersion() == record.getEventVersion()
+                && event.partitionKey().equals(record.getPayload().getRepositoryId()),
+                "Outbox metadata must match the canonical event");
+        // Pre-contract rows recorded the JSON destination. Send their canonical
+        // upcast to the configured Avro topic without rewriting the durable row.
+        String topic = "CodeChangeMerged".equals(event.eventType()) ? codeEventsTopic : event.topic();
+        return kafkaTemplate.send(topic, event.partitionKey(), record);
     }
 }

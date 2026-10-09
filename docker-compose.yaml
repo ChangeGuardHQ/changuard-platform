@@ -1,5 +1,5 @@
 # ChangeGuard platform local development stack.
-# Starts the frontend, connector, Kafka, and PostgreSQL for local development.
+# Starts the frontend, connector, Kafka, PostgreSQL, and Schema Registry for local development.
 # The frontend is served locally on port 5173 by default, and the connector service exposes its API on port 8081.
 
 services:
@@ -26,15 +26,16 @@ services:
   connector-service:
     image: ${CONNECTOR_SERVICE_IMAGE:-changuard-connector-service:0.0.1}
     build:
-      context: ./backend/services/connector-service
-      dockerfile: Dockerfile
+      context: ./backend
+      dockerfile: services/connector-service/Dockerfile
     init: true
     ports:
       - "${CONNECTOR_PORT:-8081}:8081"
     environment:
       SERVER_PORT: "8081"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events}
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events.v1}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
       OUTBOX_ENABLED: ${OUTBOX_ENABLED:-true}
       OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
@@ -50,6 +51,8 @@ services:
       kafka:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -118,6 +121,38 @@ services:
       retries: 5
     volumes:
       - kafka_data:/var/lib/kafka/data
+    networks:
+      - changuard_network
+
+  # Schema history is durable in Kafka's compacted _schemas topic, not local files.
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE:-changuard-schema-registry:8.3.2-security.1}
+    build:
+      context: ./backend
+      dockerfile: docker/schema-registry/Dockerfile
+    ports:
+      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8082}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: "1"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/subjects"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     networks:
       - changuard_network
 

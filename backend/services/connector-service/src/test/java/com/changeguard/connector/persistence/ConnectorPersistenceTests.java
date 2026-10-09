@@ -8,12 +8,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import com.changeguard.connector.PostgresTestConfiguration;
-import com.changeguard.connector.event.CodeChangeMergedEvent;
+import com.changeguard.connector.event.PullRequestMergedEvent;
 import com.changeguard.connector.github.dto.GitHubMergedPullRequest;
 import com.changeguard.connector.persistence.ConnectorIntegrationRepository.IntegrationStatus;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,7 +66,7 @@ class ConnectorPersistenceTests {
 
     @Test
     void persistsReceiptAndCanonicalEnvelopeTogetherWithoutKafka() {
-        CodeChangeMergedEvent event = event("delivery-1", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent event = event("delivery-1", ORGANIZATION, INTEGRATION);
         assertThat(intake.accept(event)).isTrue();
         assertThat(count("webhook_receipts")).isEqualTo(1);
         assertThat(jdbc.sql("SELECT received_at FROM connector.webhook_receipts")
@@ -73,15 +74,15 @@ class ConnectorPersistenceTests {
         var pending = outbox.findPending(10);
         assertThat(pending).hasSize(1);
         assertThat(pending.getFirst().eventId()).isEqualTo(event.eventId());
-        assertThat(pending.getFirst().topic()).isEqualTo("changeguard.code-events");
+        assertThat(pending.getFirst().topic()).isEqualTo("changeguard.code-events.v1");
         assertThat(pending.getFirst().partitionKey()).isEqualTo(REPOSITORY);
         assertThat(json.readTree(pending.getFirst().payload())).isEqualTo(json.valueToTree(event));
     }
 
     @Test
     void redeliveryDoesNotReplaceOriginalReceiptOrCreateAnotherEvent() {
-        CodeChangeMergedEvent first = event("delivery-1", ORGANIZATION, INTEGRATION);
-        CodeChangeMergedEvent redelivery = new CodeChangeMergedEvent(first.eventId(), first.eventType(),
+        PullRequestMergedEvent first = event("delivery-1", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent redelivery = new PullRequestMergedEvent(first.eventId(), first.eventType(),
                 first.eventVersion(), first.occurredAt(), RECEIVED.plusSeconds(60), first.organizationId(),
                 first.source(), first.actor(), first.correlation(), first.payload());
         assertThat(intake.accept(first)).isTrue();
@@ -92,9 +93,9 @@ class ConnectorPersistenceTests {
                 .isEqualTo(json.valueToTree(first));
     }
 
-    @Test
+    @RepeatedTest(10)
     void concurrentRedeliveryCreatesExactlyOneReceiptAndOutboxEvent() throws Exception {
-        CodeChangeMergedEvent event = event("concurrent-delivery", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent event = event("concurrent-delivery", ORGANIZATION, INTEGRATION);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Boolean>> results = new ArrayList<>();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -192,10 +193,10 @@ class ConnectorPersistenceTests {
 
     @Test
     void outboxFailureRollsBackNewReceiptAndPreservesExistingDelivery() {
-        CodeChangeMergedEvent first = event("delivery-1", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent first = event("delivery-1", ORGANIZATION, INTEGRATION);
         intake.accept(first);
-        CodeChangeMergedEvent second = event("delivery-2", ORGANIZATION, INTEGRATION);
-        CodeChangeMergedEvent collidingId = new CodeChangeMergedEvent(first.eventId(), second.eventType(),
+        PullRequestMergedEvent second = event("delivery-2", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent collidingId = new PullRequestMergedEvent(first.eventId(), second.eventType(),
                 second.eventVersion(), second.occurredAt(), second.receivedAt(), second.organizationId(),
                 second.source(), second.actor(), second.correlation(), second.payload());
         assertThatThrownBy(() -> intake.accept(collidingId)).isInstanceOf(DataIntegrityViolationException.class);
@@ -216,7 +217,7 @@ class ConnectorPersistenceTests {
 
     @Test
     void committedPendingEventsRemainReadableUntilPublicationIsRecorded() {
-        CodeChangeMergedEvent event = event("delivery-1", ORGANIZATION, INTEGRATION);
+        PullRequestMergedEvent event = event("delivery-1", ORGANIZATION, INTEGRATION);
         intake.accept(event);
         // A new repository instance reads committed rows without any in-memory receipt state.
         assertThat(new OutboxEventRepository(jdbc).findPending(10)).hasSize(1);
@@ -238,9 +239,9 @@ class ConnectorPersistenceTests {
         return jdbc.sql(sql).query(Integer.class).single();
     }
 
-    private CodeChangeMergedEvent event(String delivery, String organization, String integration) {
+    private PullRequestMergedEvent event(String delivery, String organization, String integration) {
         var dto = new GitHubMergedPullRequest(delivery, REPOSITORY, "acme/service", 42, "Ship change",
                 "1234567890abcdef1234567890abcdef12345678", "feature", "main", "merge-user", RECEIVED.minusSeconds(30));
-        return CodeChangeMergedEvent.fromGitHub(dto, organization, integration, RECEIVED);
+        return PullRequestMergedEvent.fromGitHub(dto, organization, integration, RECEIVED);
     }
 }
