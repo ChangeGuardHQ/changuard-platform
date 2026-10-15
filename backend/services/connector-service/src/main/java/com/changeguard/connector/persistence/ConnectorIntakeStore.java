@@ -1,6 +1,7 @@
 package com.changeguard.connector.persistence;
 
 import java.time.ZoneOffset;
+import java.sql.Types;
 import java.util.UUID;
 
 import com.changeguard.connector.event.PullRequestMergedEvent;
@@ -45,6 +46,12 @@ public class ConnectorIntakeStore {
      */
     @Transactional
     public boolean accept(PullRequestMergedEvent event) {
+        return accept(event, null);
+    }
+
+    /** Also verifies the provider account while holding the integration/repository locks. */
+    @Transactional
+    public boolean accept(PullRequestMergedEvent event, Long repositoryOwnerId) {
         Assert.notNull(event, "Canonical event is required");
         Assert.isTrue("github".equals(event.source().provider()), "GitHub event source is required");
         String organizationId = event.organizationId();
@@ -58,10 +65,12 @@ public class ConnectorIntakeStore {
                 WHERE r.organization_id = :organization AND r.integration_id = :integration
                   AND r.repository_id = :repository AND r.status = 'ACTIVE'
                   AND i.status = 'ACTIVE' AND i.provider = 'github'
+                  AND (i.github_account_id IS NULL OR i.github_account_id = :account)
                 FOR SHARE OF i, r
                 """)
                 .param("organization", organizationId).param("integration", integrationId)
-                .param("repository", repositoryId).query(Integer.class).optional().isPresent();
+                .param("repository", repositoryId).param("account", repositoryOwnerId, Types.BIGINT)
+                .query(Integer.class).optional().isPresent();
         if (!active) {
             throw new RepositoryNotConnectedException();
         }

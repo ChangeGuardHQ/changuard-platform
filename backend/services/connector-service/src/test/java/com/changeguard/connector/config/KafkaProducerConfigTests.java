@@ -19,6 +19,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Tests for Kafka producer wiring, security configuration, and Avro
+ * serialization.
+ */
 class KafkaProducerConfigTests {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -65,8 +69,7 @@ class KafkaProducerConfigTests {
                     org.springframework.boot.kafka.autoconfigure.KafkaProperties.class));
             registryConfig.registeredCodeEventContracts(registry, "changeguard.code-events");
             try (Serializer<Object> serializer = (Serializer<Object>) settings.getConfiguredInstance(
-                    ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, Serializer.class);
-                 var deserializer = new io.confluent.kafka.serializers.KafkaAvroDeserializer(registry)) {
+                    ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, Serializer.class); var deserializer = new io.confluent.kafka.serializers.KafkaAvroDeserializer(registry)) {
                 serializer.configure(properties, false);
                 deserializer.configure(Map.of("schema.registry.url", properties.get("schema.registry.url"),
                         "specific.avro.reader", true), false);

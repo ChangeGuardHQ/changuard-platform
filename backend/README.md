@@ -28,7 +28,10 @@ integration metadata, selected repositories, receipts, and outbox records are du
 Signed merged-PR deliveries now resolve the stored installation owner, commit an
 accepted receipt and canonical event, and return `202`. A scheduled relay leases
 pending events, publishes to Kafka, and marks publication after acknowledgement.
-GitHub App setup APIs and downstream timeline consumers remain to be built.
+GitHub App installation, authorized repository selection, and durable revocation
+handling are implemented. The [connection README](services/connector-service/README.md)
+describes trusted ownership, callback state, API usage, and subsystem diagrams.
+Browser connection screens and downstream timeline consumers remain to be built.
 
 ## Connector system and subsystems
 
@@ -42,10 +45,17 @@ downstream Change, Correlation, Audit, Query/BFF, and V2 AI services, all still 
 ```mermaid
 flowchart TD
     GitHub["GitHub raw delivery"] --> Security["Spring Security route rules"]
+    Admin["Basic-authenticated organization admin"] --> Setup["GitHub App setup / repository<br/>selection APIs"]
+    Setup --> Binding["Server-owned organization / account<br/>bindings and GitHub API verification"]
+    Binding --> Database
     Security --> Controller["GitHubWebhookController: body<br/>and header validation"]
     Controller --> Processor["PersistentGitHubWebhookService"]
     Processor --> HMAC["Verify HMAC over exact bytes"]
     HMAC --> Normalizer["Strict merged-PR normalization"]
+    HMAC --> Lifecycle["Installation revocation / repository removal"]
+    Lifecycle --> Access["Commit receipt and access change"]
+    Access --> Database
+    Access --> Accepted
     Normalizer --> Owner["Resolve stored installation owner"]
     Owner --> Event["PullRequestMergedEvent"]
     Event --> Durable["Validate selected repository and<br/>commit receipt + event"]
@@ -62,6 +72,8 @@ flowchart TD
 | Subsystem | Input and output | Status / detailed diagram |
 | --- | --- | --- |
 | HTTP intake | Raw JSON bytes and GitHub headers → validation status or processor call. | Implemented; [webhook API](#github-webhook-api) |
+| GitHub connection and ownership | Authorized administrator and provider API → verified installation and repository selection. | Implemented backend APIs; [connection/state/selection diagrams](services/connector-service/README.md) |
+| Installation lifecycle | Signed revocation/removal → committed receipt and access change. | Implemented; [lifecycle diagram](services/connector-service/README.md#webhook-processing-and-lifecycle-subsystem) |
 | Authenticity | Exact bytes and signature → HMAC validity. | Component implemented; [signature verification](#signature-verification) |
 | Provider normalization | Verified activity → merged-PR DTO, ignored activity, or payload error. | Merged PRs implemented; [normalization](#github-event-normalization) |
 | Canonical contract | DTO and trusted context → version-one event with stable identity. | Implemented; [event factory](#canonical-merged-change-event), [shared schemas](event-contracts/README.md) |
@@ -169,8 +181,9 @@ override the local image tag.
 Set `GITHUB_WEBHOOK_SECRET` in the root `.env` file or environment to override
 the development placeholder. `CODE_EVENTS_TOPIC` can also be overridden.
 Signed merge deliveries require an active stored installation and selected
-repository. GitHub App setup APIs are pending; local test fixtures can seed those
-bindings directly. A Kafka outage leaves accepted events pending for retry.
+repository. Use the [opt-in GitHub App setup](services/connector-service/README.md#api-and-runtime-configuration)
+to establish these bindings through authenticated APIs, or seed signed local test
+fixtures through trusted repository methods. A Kafka outage leaves accepted events pending for retry.
 
 The service's [Dockerfile](services/connector-service/Dockerfile) pins Temurin
 21.0.12.1+1 and Alpine 3.24 for its build and runtime stages. It builds the
@@ -341,14 +354,18 @@ Opened-PR and commit webhook adapters remain planned.
 **Status: implemented and connected to HTTP intake and the Kafka relay.** Flyway runs
 [V1__connector_persistence.sql](services/connector-service/src/main/resources/db/migration/V1__connector_persistence.sql),
 [V2__outbox_relay_leases.sql](services/connector-service/src/main/resources/db/migration/V2__outbox_relay_leases.sql),
-and [V3__organization_scoped_delivery_deduplication.sql](services/connector-service/src/main/resources/db/migration/V3__organization_scoped_delivery_deduplication.sql)
+[V3__organization_scoped_delivery_deduplication.sql](services/connector-service/src/main/resources/db/migration/V3__organization_scoped_delivery_deduplication.sql),
+and [V4__github_connection_and_lifecycle.sql](services/connector-service/src/main/resources/db/migration/V4__github_connection_and_lifecycle.sql)
 on startup and tracks checksums in `connector.flyway_schema_history`. V2 adds relay
 state; V3 adds the explicit organization/integration/delivery uniqueness key without
 changing either earlier migration. V3 retains the integration/delivery constraint
 so older instances can continue writing during a rolling upgrade. Integration IDs
 are globally unique, so both keys enforce the same delivery identity. Upgrade tests
-preserve accepted receipts and pending events from V1 and V2, and verify the original
-V1 checksum. All SQL
+preserve accepted receipts and pending events from V1, V2, and V3, and verify the original
+V1 checksum. V4 adds verified account metadata, connection revisions, hashed
+installation state, and repository-free lifecycle receipts in the shared delivery
+ledger. An additional integration-owner FK keeps those receipts tenant-scoped.
+All SQL
 explicitly targets the connector-owned schema. Spring JDBC provides parameterized
 queries and Spring transactions; Flyway is the sole schema creation mechanism.
 Migration failures prevent startup, and Flyway clean is disabled.
@@ -356,12 +373,15 @@ Migration failures prevent startup, and Flyway clean is disabled.
 ```mermaid
 erDiagram
     integrations ||--o{ connected_repositories : selects
+    integrations ||--o{ webhook_receipts : owns
     connected_repositories ||--o{ webhook_receipts : receives
     webhook_receipts ||--o{ outbox_events : records
     integrations {
         text id PK
         text organization_id
         bigint installation_id UK
+        bigint github_account_id
+        bigint connection_version
         text status
     }
     connected_repositories {
@@ -376,7 +396,8 @@ erDiagram
         uuid id PK
         text integration_id FK
         text organization_id FK
-        text repository_id FK
+        text repository_id FK "nullable for lifecycle"
+        text provider_action "lifecycle only"
         text delivery_id
         timestamptz received_at
         text status
@@ -404,7 +425,7 @@ metadata, idempotently selects repositories, reads active repositories, and reco
 disconnect/revocation. An installation can belong to one integration; composite
 foreign keys prevent attaching another organization's repository or receipt.
 Repository IDs remain strings and names can change independently. Authorization
-and GitHub App setup APIs must supply trusted identifiers; this layer stores no
+and the authorized GitHub App setup APIs supply trusted identifiers; this layer stores no
 private keys, access tokens, signatures, or raw webhook bodies. Organization IDs
 reference the future platform identity boundary rather than a connector-owned user directory.
 
@@ -674,7 +695,11 @@ flowchart TD
     Signature -->|"no"| Unauthorized["401 Unauthorized"]
     Signature -->|"yes"| HMAC{"Raw-byte HMAC valid?"}
     HMAC -->|"no"| Unauthorized
-    HMAC -->|"yes"| Normalize["Strictly normalize supported<br/>merged PRs"]
+    HMAC -->|"yes"| Normalize["Strictly normalize supported<br/>merges and lifecycle activity"]
+    Normalize -->|"revocation / removal"| Lifecycle["Stored owner; commit shared receipt<br/>and scoped access change"]
+    Lifecycle -->|"committed or duplicate"| Accepted
+    Lifecycle -->|"unknown installation / wrong account"| Forbidden
+    Lifecycle -->|"database failure"| Unavailable
     Normalize -->|"malformed supported payload"| PayloadError["400 Bad Request"]
     Normalize -->|"unsupported activity"| Accepted["202 Accepted, empty response"]
     Normalize -->|"merged PR"| Owner["Resolve active installation<br/>owner from PostgreSQL"]
@@ -731,8 +756,8 @@ or parsing the request body, following
 
 | Status | Meaning |
 | --- | --- |
-| `202 Accepted` | A supported merge committed durably, was already accepted, or verified unsupported activity was ignored; empty body. |
-| `400 Bad Request` | Missing metadata/body, invalid pull request JSON, or missing/invalid required merge or installation fields. |
+| `202 Accepted` | A supported merge or lifecycle delivery committed durably, was already accepted, or verified unsupported activity was ignored; empty body. |
+| `400 Bad Request` | Missing metadata/body, invalid supported JSON, or missing/invalid required merge, owner, or installation fields. |
 | `401 Unauthorized` | Missing/malformed signature or HMAC mismatch. |
 | `403 Forbidden` | A merged delivery's installation or selected repository is unknown, disconnected, or revoked. |
 | `415 Unsupported Media Type` | The request content type is unsupported. |
@@ -786,6 +811,9 @@ applies these access rules:
 - Other routes require HTTP Basic authentication. Writes outside the webhook
   keep CSRF protection. Form login, logout, and the request cache are disabled;
   authentication does not create a session.
+- GitHub connection APIs also require the caller to be an administrator in a
+  server-configured organization/account binding. Their [CSRF endpoint](services/connector-service/README.md#api-and-runtime-configuration)
+  supports cookie/token verification without creating an HTTP session.
 - Internal error dispatches are permitted so application errors keep their
   intended HTTP status.
 
@@ -877,7 +905,7 @@ handles supported and unsupported events explicitly, and durably receives suppor
 deliveries before returning. Verified unsupported events are ignored. Rejections
 and persistence failures propagate as documented HTTP statuses.
 
-Next work includes GitHub App setup and authorized integration APIs, opened-PR
+Next work includes browser connection screens, OIDC/JWT, opened-PR
 and commit webhook adapters, and downstream consumers. The
 [GitHub integration delivery plan](../docs/plans/github-repository-integration.md)
 covers installation, persistence, transactional outbox, canonical schemas, and

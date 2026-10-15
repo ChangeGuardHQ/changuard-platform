@@ -1,0 +1,23 @@
+# Opt-in GitHub App configuration. Use together with docker-compose.yaml.
+# The normal local stack and CI do not need App credentials or a real GitHub account.
+services:
+  connector-service:
+    environment:
+      GITHUB_CONNECTION_ENABLED: "true"
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?Set the registered GitHub App ID}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:?Set the registered GitHub App slug}
+      GITHUB_APP_PRIVATE_KEY_PATH: /run/secrets/github_app_key
+      GITHUB_INSTALLATION_STATE_SECRET: ${GITHUB_INSTALLATION_STATE_SECRET:?Set a separate callback-state secret of at least 32 bytes}
+      GITHUB_INSTALLATION_STATE_TTL: ${GITHUB_INSTALLATION_STATE_TTL:-10m}
+      GITHUB_CONNECTION_ORGANIZATION_ID: ${GITHUB_CONNECTION_ORGANIZATION_ID:?Set the trusted internal organization ID}
+      GITHUB_CONNECTION_ACCOUNT_ID: ${GITHUB_CONNECTION_ACCOUNT_ID:?Set its trusted GitHub account ID}
+      GITHUB_CONNECTION_ADMINISTRATORS: ${GITHUB_CONNECTION_ADMINISTRATORS:?Set its authorized Basic-auth usernames}
+      SPRING_SECURITY_USER_NAME: ${GITHUB_CONNECTION_USERNAME:?Set the Basic-auth username}
+      SPRING_SECURITY_USER_PASSWORD: ${GITHUB_CONNECTION_PASSWORD:?Set the Basic-auth password}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Set the GitHub App webhook secret}
+    secrets:
+      - github_app_key
+
+secrets:
+  github_app_key:
+    file: ${GITHUB_APP_PRIVATE_KEY_FILE:?Set the external GitHub App PEM file path}

@@ -526,7 +526,7 @@ relay publishes registered Avro to Kafka after leasing durable work. The UI has 
 | --- | --- | --- |
 | Frontend composition, routes, state, and API transport | Partial | [Frontend](#73-frontend-system), [subsystem diagrams](frontend/README.md#system-and-subsystems) |
 | Connector merged-PR intake, signature verification, normalization, envelope, and relay | Implemented; other adapters planned | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
-| GitHub installation and repository selection | Planned V1 | [GitHub connection](#1211-github-connection-and-repository-selection) |
+| GitHub installation and repository selection | Backend implemented; browser UI planned | [GitHub connection](#1211-github-connection-and-repository-selection), [ownership and setup diagrams](backend/services/connector-service/README.md) |
 | CI/build, deployment, and runtime ingestion | Planned V1 | [Connector adapters](#1212-ci-and-build-ingestion) |
 | Change records and lifecycle timelines | Planned V1 | [Change Service](#122-change-service) |
 | Impact detection and baseline windows | Planned V1 | [Correlation Service](#123-correlation-service), [engine](#17-correlation-engine) |
@@ -1018,7 +1018,9 @@ normalizer, event record, and producer form an active merged-PR pipeline. The
 processor resolves organization ownership from the stored GitHub installation,
 checks active selected repositories, and commits durable receipts/outbox events
 before returning `202`. The relay leases events and records success after Kafka
-acknowledgement, with durable retries on failure. GitHub App setup APIs and other
+acknowledgement, with durable retries on failure. GitHub App setup APIs verify
+trusted account ownership and selected repositories; signed lifecycle deliveries
+durably stop intake for revoked installations or removed repositories. Other
 event adapters remain planned. See the [backend subsystem diagrams](backend/README.md#connector-system-and-subsystems).
 
 ```mermaid
@@ -1068,17 +1070,21 @@ ServiceNow
 
 ### 12.1.1 GitHub connection and repository selection
 
-**Status: planned V1.** An authorized organization administrator installs the hosted
+**Status: implemented backend APIs; browser UI planned V1.** An authorized organization administrator installs the hosted
 GitHub App and selects accessible repositories through ChangeGuard APIs. The
 backend validates expiring, single-use callback state, persists organization-owned
 installation metadata, and stops intake for disconnected or revoked integrations.
-App keys and short-lived installation tokens stay server-side. Endpoint ownership
-and persistence details are to be finalized in the [integration plan](docs/plans/github-repository-integration.md).
+App keys and short-lived installation tokens stay server-side. HTTP Basic and
+server-configured administrator/GitHub-account bindings establish ownership until
+the planned platform identity boundary is available. Provider API verification and
+connection revisions prevent stale selections from undoing revocation. See the
+[connection API and subsystem diagrams](backend/services/connector-service/README.md)
+and [integration plan](docs/plans/github-repository-integration.md).
 
 ```mermaid
 sequenceDiagram
     actor Admin
-    participant UI as Frontend
+    participant UI as API client / planned UI
     participant API as Integration API
     participant GitHub as Hosted GitHub App
     participant DB as Integration<br/>metadata
@@ -1751,8 +1757,10 @@ Version all APIs.
 # 20. Security
 
 **Status: partial.** The connector currently uses stateless HTTP Basic, public
-health reads, and a public webhook POST with CSRF exemption. Its HMAC component
-exists but is not yet wired into processing. OAuth2/JWT, RBAC, tenant isolation,
+health reads, and a public webhook POST with CSRF exemption. Its HMAC verifier
+runs before payload parsing, and webhook ownership is resolved from durable
+installation bindings. Connection APIs enforce server-configured organization
+administrator and GitHub-account bindings. OAuth2/JWT, platform-wide RBAC,
 rate limits, and managed secret storage below are target platform boundaries.
 Browser identity and provider-delivery authenticity are distinct checks.
 
@@ -1762,8 +1770,8 @@ flowchart LR
     Identity --> Gateway["Gateway token validation and<br/>rate limits - planned"]
     Gateway --> AuthZ["Organization and role<br/>authorization - planned"]
     AuthZ --> APIs["Scoped domain APIs"]
-    Provider["Provider webhook"] --> HMAC["Verify raw-byte signature -<br/>component implemented"]
-    HMAC --> Integration["Trusted integration ownership<br/>- planned"]
+    Provider["Provider webhook"] --> HMAC["Verify raw-byte signature -<br/>implemented before parsing"]
+    HMAC --> Integration["Stored organization / installation<br/>ownership - implemented"]
     Integration --> Ingest["Allowed repository / event<br/>intake"]
     Secrets["Managed secrets, encrypted<br/>with KMS - planned"] -.-> HMAC
     Secrets -.-> ExternalAPI["Least-privilege provider API<br/>clients"]

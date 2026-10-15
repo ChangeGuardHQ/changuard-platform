@@ -12,16 +12,39 @@ import org.springframework.util.Assert;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Converts durable JSON into the shared Avro contract without rewriting stored events. */
+/**
+ * Maps the durable JSON representation of a merged pull request event into the
+ * shared Avro contract used for Kafka publication.
+ *
+ * <p>
+ * The mapper intentionally preserves the original stored event payload and only
+ * normalizes the discriminator needed to match the canonical event type during
+ * deserialization. This avoids rewriting already persisted outbox records while
+ * still ensuring the generated Avro model is validated before transport.</p>
+ */
 @Component
 public class PullRequestMergedAvroMapper {
+
     private final JsonMapper json;
 
+    /**
+     * Creates the mapper and initializes the generated Avro classes used by the
+     * shared event schema registry.
+     */
     public PullRequestMergedAvroMapper(JsonMapper json) {
         com.changeguard.events.CodeEventSchemas.trustGeneratedClasses();
         this.json = json;
     }
 
+    /**
+     * Converts a raw outbox payload into the canonical Avro event type.
+     *
+     * @param payload the JSON object stored in the outbox; may include the
+     * legacy discriminator used by the original merged-PR event
+     * @return the validated Avro record ready to emit to Kafka
+     * @throws IllegalArgumentException when the payload is missing or not a
+     * JSON object
+     */
     public PullRequestMerged fromOutbox(JsonNode payload) {
         Assert.isTrue(payload != null && payload.isObject(), "Outbox payload must be a JSON object");
         // Upcast only the original merged-PR discriminator. Unknown types and
@@ -33,6 +56,14 @@ public class PullRequestMergedAvroMapper {
         return toAvro(json.treeToValue(canonical, PullRequestMergedEvent.class));
     }
 
+    /**
+     * Converts the typed domain event into the shared Avro record used by the
+     * event contract.
+     *
+     * @param event the connector event to translate
+     * @return the generated Avro representation; validated against the shared
+     * schema
+     */
     public PullRequestMerged toAvro(PullRequestMergedEvent event) {
         Assert.notNull(event, "Code event is required");
         var record = new PullRequestMerged();

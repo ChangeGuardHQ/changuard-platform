@@ -71,12 +71,15 @@ public class ConnectorIntegrationRepository {
     public Optional<GitHubIntegration> findGitHubIntegration(String organizationId, String integrationId) {
         requireScope(organizationId, integrationId);
         return jdbc.sql("""
-                SELECT id, organization_id, installation_id, status FROM connector.integrations
+                SELECT id, organization_id, installation_id, status,
+                       github_account_id, github_account_login, github_account_type, connection_version FROM connector.integrations
                 WHERE id = :integration AND organization_id = :organization AND provider = 'github'
                 """)
                 .param("integration", integrationId).param("organization", organizationId)
                 .query((rs, row) -> new GitHubIntegration(rs.getString("id"), rs.getString("organization_id"),
-                        rs.getLong("installation_id"), IntegrationStatus.valueOf(rs.getString("status"))))
+                        rs.getLong("installation_id"), IntegrationStatus.valueOf(rs.getString("status")),
+                        rs.getObject("github_account_id", Long.class), rs.getString("github_account_login"),
+                        rs.getString("github_account_type"), rs.getLong("connection_version")))
                 .optional();
     }
 
@@ -87,12 +90,15 @@ public class ConnectorIntegrationRepository {
     public Optional<GitHubIntegration> findActiveGitHubInstallation(long installationId) {
         Assert.isTrue(installationId > 0, "GitHub installation ID must be positive");
         return jdbc.sql("""
-                SELECT id, organization_id, installation_id, status FROM connector.integrations
+                SELECT id, organization_id, installation_id, status,
+                       github_account_id, github_account_login, github_account_type, connection_version FROM connector.integrations
                 WHERE installation_id = :installation AND provider = 'github' AND status = 'ACTIVE'
                 """)
                 .param("installation", installationId)
                 .query((rs, row) -> new GitHubIntegration(rs.getString("id"), rs.getString("organization_id"),
-                        rs.getLong("installation_id"), IntegrationStatus.valueOf(rs.getString("status"))))
+                        rs.getLong("installation_id"), IntegrationStatus.valueOf(rs.getString("status")),
+                        rs.getObject("github_account_id", Long.class), rs.getString("github_account_login"),
+                        rs.getString("github_account_type"), rs.getLong("connection_version")))
                 .optional();
     }
 
@@ -150,7 +156,8 @@ public class ConnectorIntegrationRepository {
         requireScope(organizationId, integrationId);
         Assert.notNull(status, "Integration status is required");
         return jdbc.sql("""
-                UPDATE connector.integrations SET status = :status, updated_at = CURRENT_TIMESTAMP
+                UPDATE connector.integrations SET status = :status, updated_at = CURRENT_TIMESTAMP,
+                    connection_version = connection_version + 1
                 WHERE id = :integration AND organization_id = :organization AND provider = 'github'
                 """)
                 .param("integration", integrationId).param("organization", organizationId)
@@ -178,7 +185,9 @@ public class ConnectorIntegrationRepository {
     }
 
     public record GitHubIntegration(String integrationId, String organizationId,
-            long installationId, IntegrationStatus status) {
+            long installationId, IntegrationStatus status, Long githubAccountId,
+            String githubAccountLogin, String githubAccountType,
+            @com.fasterxml.jackson.annotation.JsonIgnore long connectionVersion) {
 
     }
 

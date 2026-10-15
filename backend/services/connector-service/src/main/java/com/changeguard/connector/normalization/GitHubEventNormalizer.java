@@ -117,8 +117,11 @@ public class GitHubEventNormalizer {
         Long installationId = webhook.installation() == null ? null : webhook.installation().id();
         if (requireInstallation) {
             require(installationId != null && installationId > 0, "installation.id");
+            require(repository.owner() != null && repository.owner().id() != null && repository.owner().id() > 0,
+                    "repository.owner.id");
         }
-        return Optional.of(new GitHubMergedDelivery(installationId, new GitHubMergedPullRequest(
+        return Optional.of(new GitHubMergedDelivery(installationId,
+                repository.owner() == null ? null : repository.owner().id(), new GitHubMergedPullRequest(
                 deliveryId,
                 repository.id().toString(),
                 repository.fullName(),
@@ -131,7 +134,7 @@ public class GitHubEventNormalizer {
                 mergedAt)));
     }
 
-    public record GitHubMergedDelivery(Long installationId, GitHubMergedPullRequest pullRequest) {
+    public record GitHubMergedDelivery(Long installationId, Long repositoryOwnerId, GitHubMergedPullRequest pullRequest) {
     }
 
     private static Instant mergeTimestamp(String value) {
