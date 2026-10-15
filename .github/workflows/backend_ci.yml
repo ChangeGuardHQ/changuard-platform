@@ -1,408 +1,63 @@
-# Backend CI workflow
-# Verifies the connector service, runs security and dependency scans,
-# checks container builds and smoke tests, and uploads scan artifacts.
-
 name: Backend CI
 
+# This entry point owns triggers and orchestration; reusable workflows own the checks.
 on:
+  # Include reusable workflow edits so changing a check also exercises that check.
   pull_request:
     paths:
-      - ".github/workflows/backend_ci.yml"
-      - ".github/scripts/summarize_trivy.py"
-      - ".github/scripts/test_summarize_trivy.py"
+      - ".github/workflows/backend_*.yml"
+      # Report-summary changes need the same validation as the scanners that use them.
+      - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
       - "docker-compose.github.yaml"
   push:
     paths:
-      - ".github/workflows/backend_ci.yml"
-      - ".github/scripts/summarize_trivy.py"
-      - ".github/scripts/test_summarize_trivy.py"
+      - ".github/workflows/backend_*.yml"
+      - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
       - "docker-compose.github.yaml"
+  # Refresh security results weekly even when application code has not changed.
   schedule:
     - cron: "37 6 * * 1"
   workflow_dispatch:
 
+# Calls use a read-only token unless a job explicitly requests additional access.
 permissions:
   contents: read
 
+# Keep this group only in the caller: reused workflows share its github.workflow value.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Independent calls let tests, security scans, and container checks report separately.
 jobs:
   backend:
     name: Backend verification
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      # Keep automatic container cleanup enabled without pulling its helper from Docker Hub.
-      TESTCONTAINERS_RYUK_CONTAINER_IMAGE: mirror.gcr.io/testcontainers/ryuk@sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0 # 0.14.0
-    defaults:
-      run:
-        working-directory: backend/services/connector-service
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Java
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
-        with:
-          distribution: temurin
-          java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
-          cache: maven
-          cache-dependency-path: backend/**/pom.xml
-
-      - name: Verify security-report summaries
-        run: python3 -m unittest discover -s ../../../.github/scripts -p 'test_*.py'
-
-      - name: Build integration infrastructure images
-        run: |
-          docker build --tag changuard-postgres:18.6-security.1 ../../docker/postgres
-          docker build --tag changuard-kafka:4.2.2-security.2 ../../docker/kafka
-          docker build --file ../../docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.2 ../..
-
-      - name: Verify backend
-        run: sh ./mvnw -f ../../pom.xml --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
-
-      - name: Upload unit and integration test reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: backend-test-reports
-          path: |
-            backend/**/target/surefire-reports/
-            backend/**/target/failsafe-reports/
-          if-no-files-found: ignore
-          retention-days: 7
+    uses: ./.github/workflows/backend_verify.yml
 
   source-security:
     name: Backend dependency, secret, and configuration scans
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Java for dependency resolution
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
-        with:
-          distribution: temurin
-          java-version: "21.0.12+101.0.LTS"
-          cache: maven
-          cache-dependency-path: backend/**/pom.xml
-
-      - name: Resolve backend dependencies before scanning
-        # Populate parent/BOM and reactor artifacts so Trivy can resolve the full graph locally.
-        run: sh backend/services/connector-service/mvnw -f backend/pom.xml --batch-mode --no-transfer-progress -DskipTests install
-
-      - name: Scan backend dependencies, secrets, and Docker configuration
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          version: v0.70.0
-          scan-ref: backend
-          scanners: vuln,secret,misconfig
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-filesystem-security.json
-
-      - name: Scan shared infrastructure configuration
-        if: always()
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: config
-          version: v0.70.0
-          scan-ref: .
-          skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-configuration-security.json
-
-      - name: Print source security findings
-        if: always()
-        run: python3 .github/scripts/summarize_trivy.py backend-filesystem-security.json backend-configuration-security.json
-
-      - name: Upload security reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: backend-source-security
-          path: backend-*-security.json
-          if-no-files-found: warn
-          retention-days: 7
+    uses: ./.github/workflows/backend_source_security.yml
 
   sast:
     name: Backend source security scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Check out pinned Semgrep security rules
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: semgrep/semgrep-rules
-          ref: a84ff9cc2453ca91d581380de4b8b3f272f6f4be # 2026-09-22
-          path: .security-rules
-          sparse-checkout: |
-            java/lang/security
-            java/spring/security
-          persist-credentials: false
-
-      - name: Scan Java and Spring sources
-        env:
-          # Use the verified public cache to avoid Docker Hub's anonymous pull limit.
-          SEMGREP_IMAGE: mirror.gcr.io/semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
-        run: |
-          mkdir -p "$RUNNER_TEMP/backend-sast"
-          docker run --rm --network none \
-            --volume "$GITHUB_WORKSPACE:/src:ro" \
-            --volume "$RUNNER_TEMP/backend-sast:/reports" \
-            --workdir /src \
-            --env HOME=/tmp \
-            --env SEMGREP_ENABLE_VERSION_CHECK=0 \
-            --env SEMGREP_SEND_METRICS=off \
-            "$SEMGREP_IMAGE" \
-            semgrep scan --oss-only --metrics=off --disable-version-check --strict --error \
-              --config .security-rules/java/lang/security \
-              --config .security-rules/java/spring/security \
-              --json-output=/reports/semgrep.json \
-              --sarif-output=/reports/semgrep.sarif backend
-
-      - name: Upload source security reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: backend-sast
-          path: ${{ runner.temp }}/backend-sast/
-          if-no-files-found: warn
-          retention-days: 7
+    uses: ./.github/workflows/backend_sast.yml
 
   codeql:
     name: Backend CodeQL analysis
-    # Private repositories need GitHub Code Security enabled before opting in.
+    # Private repositories must enable GitHub Code Security and set the repository
+    # variable CODEQL_ENABLED to the string "true" to opt in. Otherwise, CodeQL is skipped.
     if: ${{ github.event.repository.visibility == 'public' || vars.CODEQL_ENABLED == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
       packages: read
       security-events: write
-    defaults:
-      run:
-        working-directory: backend/services/connector-service
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Java
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
-        with:
-          distribution: temurin
-          java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
-          cache: maven
-          cache-dependency-path: backend/**/pom.xml
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          languages: java-kotlin
-          tools: https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.1/codeql-bundle-linux64.tar.gz
-          build-mode: manual
-          queries: security-extended
-
-      - name: Build for CodeQL
-        run: sh ./mvnw -f ../../pom.xml -pl services/connector-service -am --batch-mode --no-transfer-progress -DskipTests clean package
-
-      - name: Analyze Java sources
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          category: /language:java-kotlin
-          output: ${{ github.workspace }}/codeql-results
-
-      - name: Upload CodeQL report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: backend-codeql
-          path: codeql-results/*.sarif
-          if-no-files-found: warn
-          retention-days: 7
+    uses: ./.github/workflows/backend_codeql.yml
 
   container:
     name: Backend container build, smoke test, and security scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
-      KAFKA_IMAGE: changuard-kafka:4.2.2-security.2
-      POSTGRES_IMAGE: changuard-postgres:18.6-security.1
-      SCHEMA_REGISTRY_IMAGE: changuard-schema-registry:8.3.2-security.2
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Validate Compose configuration
-        run: |
-          docker compose config --quiet
-          docker compose --file docker-compose.yaml --file docker-compose.github.yaml config --no-interpolate --quiet
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-        with:
-          version: v0.37.1
-          driver-opts: image=mirror.gcr.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-
-      - name: Build connector image
-        id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: backend
-          file: backend/services/connector-service/Dockerfile
-          load: true
-          push: false
-          tags: changuard-connector-service:ci
-          cache-from: type=gha,scope=connector-service
-          cache-to: type=gha,mode=max,scope=connector-service
-
-      - name: Build patched Kafka image
-        id: kafka-build
-        if: ${{ !cancelled() }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: backend/docker/kafka
-          load: true
-          push: false
-          tags: ${{ env.KAFKA_IMAGE }}
-          cache-from: type=gha,scope=kafka
-          cache-to: type=gha,mode=max,scope=kafka
-
-      - name: Build hardened PostgreSQL image
-        id: postgres-build
-        if: ${{ !cancelled() }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: backend/docker/postgres
-          load: true
-          push: false
-          tags: ${{ env.POSTGRES_IMAGE }}
-          cache-from: type=gha,scope=postgres
-          cache-to: type=gha,mode=max,scope=postgres
-
-      - name: Build hardened Schema Registry image
-        id: registry-build
-        if: ${{ !cancelled() }}
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: backend
-          file: backend/docker/schema-registry/Dockerfile
-          load: true
-          push: false
-          tags: ${{ env.SCHEMA_REGISTRY_IMAGE }}
-          cache-from: type=gha,scope=schema-registry
-          cache-to: type=gha,mode=max,scope=schema-registry
-
-      - name: Verify PostgreSQL startup and retained data
-        run: sh backend/docker/postgres/smoke-test.sh
-
-      - name: Smoke test connector, migrations, Kafka, and registered contracts
-        run: |
-          docker compose up --no-build --wait --wait-timeout 180 connector-service
-          curl --fail --silent --show-error http://localhost:8081/actuator/health
-          docker compose exec -T postgres psql -U changeguard -d changeguard -v ON_ERROR_STOP=1 \
-            -c 'SELECT version FROM connector.flyway_schema_history WHERE success;' \
-            -c 'SELECT count(*) FROM connector.outbox_events;'
-          sh backend/docker/kafka/smoke-test.sh
-          python3 backend/docker/schema-registry/verify-contracts.py
-
-      - name: Scan image OS packages, Java dependencies, and secrets
-        if: always() && steps.build.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
-          image-ref: changuard-connector-service:ci
-          version: v0.70.0
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-container-security.json
-
-      - name: Scan Kafka image OS packages, Java dependencies, and secrets
-        if: always() && steps.kafka-build.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.KAFKA_IMAGE }}
-          version: v0.70.0
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-kafka-security.json
-
-      - name: Scan PostgreSQL image packages and secrets
-        if: always() && steps.postgres-build.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.POSTGRES_IMAGE }}
-          version: v0.70.0
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-postgres-security.json
-
-      - name: Scan Schema Registry packages, Java dependencies, and secrets
-        if: always() && steps.registry-build.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
-          image-ref: ${{ env.SCHEMA_REGISTRY_IMAGE }}
-          version: v0.70.0
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: backend-schema-registry-security.json
-
-      - name: Print image security findings
-        if: always()
-        run: python3 .github/scripts/summarize_trivy.py backend-container-security.json backend-kafka-security.json backend-postgres-security.json backend-schema-registry-security.json
-
-      - name: Upload container security report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: backend-container-security
-          path: |
-            backend-container-security.json
-            backend-kafka-security.json
-            backend-postgres-security.json
-            backend-schema-registry-security.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Container diagnostics and cleanup
-        if: always()
-        run: |
-          docker compose logs --no-color
-          docker compose down --volumes
+    uses: ./.github/workflows/backend_container.yml

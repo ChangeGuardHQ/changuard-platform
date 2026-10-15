@@ -1,0 +1,51 @@
+name: Frontend CodeQL analysis
+
+# frontend_ci.yml checks repository eligibility before calling this workflow.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: Frontend CodeQL analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Match the caller's grants; security-events: write allows findings to be uploaded.
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          languages: javascript-typescript
+          tools: https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.1/codeql-bundle-linux64.tar.gz
+          # JavaScript/TypeScript analysis reads source without a compilation step.
+          build-mode: none
+          source-root: frontend
+          queries: security-extended
+
+      - name: Analyze JavaScript and TypeScript sources
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          category: /language:javascript-typescript
+          output: ${{ github.workspace }}/codeql-results
+
+      - name: Upload CodeQL report
+        # Retain SARIF for inspection even if publishing to code scanning fails.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-codeql
+          path: codeql-results/*.sarif
+          if-no-files-found: warn
+          retention-days: 7

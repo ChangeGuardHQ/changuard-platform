@@ -59,8 +59,8 @@ and Registry access controls remain deployment configuration.
 | Setting | Local value |
 | --- | --- |
 | `SCHEMA_REGISTRY_IMAGE` | `changuard-schema-registry:8.3.2-security.2` |
-| `SCHEMA_REGISTRY_PORT` | `8082` on localhost; Registry container listens on `8081`. |
-| `SCHEMA_REGISTRY_URL` | `http://localhost:8082` for Maven clients; Compose supplies `http://schema-registry:8081`. |
+| `SCHEMA_REGISTRY_PORT` | `8083` on localhost; Registry container listens on `8081`. |
+| `SCHEMA_REGISTRY_URL` | `http://localhost:8083` for Maven clients; Compose supplies `http://schema-registry:8081`. |
 | `SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS` | `PLAINTEXT://kafka:9092` in Compose. |
 | `SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR` | `1` for local development. |
 

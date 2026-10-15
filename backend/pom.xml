@@ -17,6 +17,7 @@
         <module>event-contracts</module>
         <module>docker/schema-registry</module>
         <module>services/connector-service</module>
+        <module>services/change-service</module>
     </modules>
     <!-- Central build versions used across the backend modules. -->
     <properties>

@@ -1976,18 +1976,23 @@ planned. Signed merged-PR webhook traffic reaches Kafka through the durable outb
 flowchart LR
     Browser["Host browser"] -->|"localhost:5173"| Frontend["frontend: Vite"]
     Client["Host curl / webhook fixture"] -->|"localhost:8081"| Connector["connector-service: Spring Boot"]
+    ChangeClient["Host change API client"] -->|"localhost:8082"| Change["change-service: infrastructure"]
+    RegistryClient["Host schema client"] -->|"localhost:8083"| Registry["schema-registry: port 8081"]
     KafkaClient["Host Kafka client"] -->|"localhost:9092 / external<br/>listener"| Kafka["kafka: broker + KRaft<br/>controller"]
     Connector -.->|"configured producer:<br/>kafka:9092"| Kafka
     Kafka --> Volume[("kafka_data named volume")]
     Kafka -.->|"health gates connector startup"| Connector
-    Connector -->|"JDBC / Flyway"| Postgres["postgres: connector-owned schema"]
+    Connector -->|"JDBC / Flyway: connector schema"| Postgres["postgres: service-owned schemas"]
+    Change -->|"JDBC: change schema"| Postgres
+    Connector -->|"Avro schema lookup"| Registry
     Postgres --> DatabaseVolume[("postgres_data named volume")]
     Postgres -.->|"health gates startup"| Connector
 ```
 
 Local development should be possible with Docker Compose.
 
-Run the frontend, Connector Service, Kafka, and PostgreSQL from the repository root with:
+Run the frontend, Connector Service, Change Service, Kafka, PostgreSQL, and
+Schema Registry from the repository root with:
 
 ```sh
 docker compose up --build
@@ -1995,12 +2000,15 @@ docker compose up --build
 
 Then open <http://localhost:5173>. The connector's health endpoint is
 <http://localhost:8081/actuator/health>, and Kafka is available on localhost:9092.
+Change Service exposes readiness at <http://localhost:8082/actuator/health/readiness>;
+Schema Registry uses <http://localhost:8083/subjects> to avoid a host-port collision.
 The [Compose file](docker-compose.yaml) waits for Kafka and PostgreSQL health before starting
 the connector. If port 5173 is in use, start it with
 `FRONTEND_PORT=5174 docker compose up --build` and open <http://localhost:5174>.
 Stop the app with `Ctrl+C`, or run `docker compose down`.
 
-Set `CONNECTOR_PORT`, `KAFKA_PORT`, or `POSTGRES_PORT` to change the other host ports.
+Set `CONNECTOR_PORT`, `CHANGE_SERVICE_PORT`, `SCHEMA_REGISTRY_PORT`, `KAFKA_PORT`,
+or `POSTGRES_PORT` to change the other host ports.
 The [.env.example](.env.example) lists development settings. Kafka and database
 data are retained in named volumes. To start only the connector and its dependencies,
 use `docker compose up --build --wait connector-service`.
@@ -2157,11 +2165,14 @@ Kubernetes
 Terraform
 ```
 
-GitHub Actions workflows are maintained independently at
+GitHub Actions entry points are maintained independently at
 `.github/workflows/frontend_ci.yml` and `.github/workflows/backend_ci.yml`.
+Each calls separate reusable workflows for verification, dependency/secret/
+configuration scans, Semgrep, CodeQL, and container checks. See the
+[workflow guide](.github/workflows/README.md) for the file map and editing conventions.
 Frontend CI runs lint, TypeScript checks, all unit and integration tests, and the
 production build. Backend CI verifies the `backend/pom.xml` reactor on Java 21,
-including shared Avro contracts and the Connector Service. Both workflows have
+including shared Avro contracts, the Connector Service, and Change Service. Both workflows have
 independent Semgrep source scans, dependency/secret/configuration scanning, and container
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.

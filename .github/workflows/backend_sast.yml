@@ -1,0 +1,59 @@
+name: Backend source security scan
+
+# Called independently of compilation; Semgrep analyzes the Java/Spring source directly.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  sast:
+    name: Backend source security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned Semgrep security rules
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: semgrep/semgrep-rules
+          ref: a84ff9cc2453ca91d581380de4b8b3f272f6f4be # 2026-09-22
+          path: .security-rules
+          sparse-checkout: |
+            java/lang/security
+            java/spring/security
+          persist-credentials: false
+
+      - name: Scan Java and Spring sources
+        env:
+          # Use the verified public cache to avoid Docker Hub's anonymous pull limit.
+          SEMGREP_IMAGE: mirror.gcr.io/semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
+        run: |
+          mkdir -p "$RUNNER_TEMP/backend-sast"
+          docker run --rm --network none \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            --volume "$RUNNER_TEMP/backend-sast:/reports" \
+            --workdir /src \
+            --env HOME=/tmp \
+            --env SEMGREP_ENABLE_VERSION_CHECK=0 \
+            --env SEMGREP_SEND_METRICS=off \
+            "$SEMGREP_IMAGE" \
+            semgrep scan --oss-only --metrics=off --disable-version-check --strict --error \
+              --config .security-rules/java/lang/security \
+              --config .security-rules/java/spring/security \
+              --json-output=/reports/semgrep.json \
+              --sarif-output=/reports/semgrep.sarif backend
+
+      - name: Upload source security reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-sast
+          path: ${{ runner.temp }}/backend-sast/
+          if-no-files-found: warn
+          retention-days: 7

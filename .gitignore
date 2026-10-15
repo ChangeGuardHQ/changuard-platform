@@ -25,11 +25,23 @@ build/
 hs_err_pid*
 
 # Test and tooling output
+# Ignore rules do not untrack files already committed; repository hygiene CI checks that case.
 __pycache__/
 *.py[cod]
+.cache/
+.trivy-cache/
+.security-rules/
 .nyc_output/
 playwright-report/
 test-results/
+
+# Scanner output belongs in CI artifacts; retain source configurations and report fixtures.
+/backend-*-security.json
+/frontend-*-security.json
+/frontend/npm-audit.json
+/codeql-results/
+/semgrep.json
+/semgrep.sarif
 
 # Terraform local state and variables
 .terraform/
@@ -58,6 +70,9 @@ Thumbs.db
 *.swo
 
 # Local certificates and keystores
+.aws/
+.kube/
+.ssh/
 *.pem
 *.key
 *.p12

@@ -61,7 +61,8 @@ spring:
         request.timeout.ms: 10000
         delivery.timeout.ms: 30000
 
-        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8082}
+        # The host Registry port differs from Change Service's API port 8082.
+        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8083}
         # Startup registers the reviewed catalog; publishing cannot register arbitrary schemas.
         auto.register.schemas: false
         use.latest.version: false

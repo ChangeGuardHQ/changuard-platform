@@ -2,8 +2,10 @@
 
 The [backend Maven reactor](pom.xml) contains the
 [shared event contracts](event-contracts/README.md), the
-[Schema Registry runtime](docker/schema-registry/README.md), and the
-[Connector Service](services/connector-service/pom.xml). It targets Java 21 and
+[Schema Registry runtime](docker/schema-registry/README.md), the
+[Connector Service](services/connector-service/pom.xml), and the
+[Change Service](services/change-service/README.md). Change Service provides
+infrastructure while its business logic remains scaffolded. The connector targets Java 21 and
 uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka,
 Actuator, Spring JDBC, and Flyway. Its role is to receive external integration
 events and publish normalized ChangeGuard events through a durable outbox.
@@ -16,7 +18,7 @@ Spring Boot release. See
 Flyway introduces Jackson 2 independently of the application's Jackson 3 mapper;
 both BOMs must therefore stay patched.
 
-The backend parent manages `at.yawk.lz4:lz4-java` at 1.11.4 for the connector and
+The backend parent manages `at.yawk.lz4:lz4-java` at 1.11.4 for both services and
 Registry. Kafka client defaults of 1.10.1 and 1.11.1 are affected by
 [`CVE-2026-106451`](https://github.com/yawkat/lz4-java/security/advisories/GHSA-mcr4-qmvw-px4g).
 The broker image replaces its LZ4 JAR with the same checksum-verified version.
@@ -146,7 +148,7 @@ flowchart LR
 ```
 
 The repository's [Compose configuration](../docker-compose.yaml) runs the
-frontend, Connector Service, PostgreSQL, Schema Registry, and a single-node Kafka broker:
+frontend, Connector Service, Change Service, PostgreSQL, Schema Registry, and a single-node Kafka broker:
 
 ```sh
 docker compose up --build --wait
@@ -158,7 +160,10 @@ its PostgreSQL/Kafka/Registry dependencies, use `docker compose up --build --wai
 The frontend is available on port 5173, the connector on 8081, and Kafka on
 localhost:9092. Override host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`, and
 `KAFKA_PORT`; PostgreSQL is bound to localhost on `POSTGRES_PORT` (default 5432).
-Registry is available at localhost:8082, controlled by `SCHEMA_REGISTRY_PORT`;
+Change Service is available at localhost:8082, controlled by `CHANGE_SERVICE_PORT`.
+It connects to the same database with its own `change` schema; domain migrations
+remain disabled until implemented. See its [development guide](services/change-service/README.md).
+Registry is available at localhost:8083, controlled by `SCHEMA_REGISTRY_PORT`;
 containers use `http://schema-registry:8081`. Its schema history lives in Kafka's
 compacted `_schemas` topic. See [Registry runtime diagrams](docker/schema-registry/README.md).
 Containers use `postgres:5432` for database traffic and `kafka:9092` for broker traffic. The broker uses
@@ -241,12 +246,15 @@ runs this same suite and checks applied migrations in the Compose database.
 Reports are written to `services/connector-service/target/surefire-reports/`
 relative to this directory; shared contract reports are under
 `event-contracts/target/surefire-reports`. The
-[backend CI workflow](../.github/workflows/backend_ci.yml) builds the backend reactor and uses Temurin 21.0.12.1+1 with the Maven
+[backend CI entry point](../.github/workflows/backend_ci.yml) calls reusable
+workflows for verification, security, CodeQL, and containers. Its service matrix
+builds both APIs through the reactor with shared dependencies. See the
+[workflow guide](../.github/workflows/README.md). CI uses Temurin 21.0.12.1+1 with the Maven
 wrapper on Ubuntu 24.04. The `setup-java` input uses Adoptium's equivalent SemVer
 identifier, `21.0.12+101.0.LTS`, to select that exact release.
 Independent jobs run Maven verification, Semgrep Java/Spring source security
 scans, Trivy dependency/secret/configuration scans, and the container
-build, Compose startup/migration check, Kafka message smoke test, and connector/Kafka/PostgreSQL image
+build, Compose startup/migration check, Kafka message smoke test, and connector/change-service/Kafka/PostgreSQL/Registry image
 scans. The image scans cover packaged Java dependencies and operating-system
 packages. Trivy fails on HIGH or
 CRITICAL findings, including unfixed vulnerabilities. Test and security reports
@@ -275,8 +283,10 @@ the [shared CodeQL setup instructions](../README.md#25-cicd).
 Local validation on October 4, 2026 found no HIGH/CRITICAL findings in the
 connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`
 still has five HIGH findings; the [Kafka Dockerfile](docker/kafka/Dockerfile)
-fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. CI builds and scans that
-patched image and keeps the same HIGH/CRITICAL failure policy.
+fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. The `security.2` image also
+updates LZ4 Java to 1.11.4 for `CVE-2026-106451`. CI builds and scans the patched
+image and keeps the same HIGH/CRITICAL failure policy. Image scan findings are
+summarized in the job log, with the full JSON reports retained as artifacts.
 
 On October 7, 2026, adding Flyway brought Jackson 2.21.5 into the connector JAR,
 producing five HIGH image findings. The independent Jackson 2 BOM override to
@@ -315,7 +325,7 @@ Defaults live in
 | `SERVER_PORT` | `8081` | HTTP port. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker addresses used by the producer factory. |
 | `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Avro destination used at intake and for legacy queued-event cutover. |
-| `SCHEMA_REGISTRY_URL` | `http://localhost:8082` | Registration and serializer schema lookup; Compose uses the internal Registry address. |
+| `SCHEMA_REGISTRY_URL` | `http://localhost:8083` | Registration and serializer schema lookup; Compose uses the internal Registry address. |
 | `GITHUB_WEBHOOK_SECRET` | `change-me` | Shared secret used by the signature validation component. |
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/changeguard` | Connector JDBC URL; Compose uses the internal `postgres` hostname. |
 | `SPRING_DATASOURCE_USERNAME` | `changeguard` | Connector database login. |

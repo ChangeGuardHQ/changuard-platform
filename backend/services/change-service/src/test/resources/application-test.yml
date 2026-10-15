@@ -1,0 +1,18 @@
+spring:
+  flyway:
+    # Test-only schema proves migration wiring without applying domain placeholders.
+    enabled: true
+    locations: classpath:db/infrastructure-test
+  kafka:
+    admin:
+      auto-create: false
+    listener:
+      auto-startup: false
+  security:
+    user:
+      name: infrastructure-test
+      password: test-password
+
+logging:
+  level:
+    com.changeguard.change: INFO

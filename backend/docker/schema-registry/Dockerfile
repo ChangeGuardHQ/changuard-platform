@@ -6,6 +6,8 @@ COPY services/connector-service/.mvn .mvn
 COPY services/connector-service/mvnw pom.xml ./
 COPY event-contracts/pom.xml event-contracts/pom.xml
 COPY services/connector-service/pom.xml services/connector-service/pom.xml
+# Reactor discovery also reads the change-service module when selecting Registry.
+COPY services/change-service/pom.xml services/change-service/pom.xml
 COPY docker/schema-registry/pom.xml docker/schema-registry/pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
     sh ./mvnw --batch-mode --no-transfer-progress -pl docker/schema-registry -am -DskipTests package

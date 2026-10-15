@@ -1,0 +1,1 @@
+-- TODO: Create the change_records table when the persistence model is defined.

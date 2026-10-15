@@ -31,7 +31,8 @@ def verify(url, topic):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default=os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8082"))
+    # Compose publishes Registry on 8083 to leave 8082 available for Change Service.
+    parser.add_argument("--url", default=os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8083"))
     parser.add_argument("--topic", default=os.environ.get("CODE_EVENTS_TOPIC", "changeguard.code-events.v1"))
     args = parser.parse_args()
     verify(args.url, args.topic)

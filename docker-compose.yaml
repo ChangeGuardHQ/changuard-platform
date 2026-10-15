@@ -1,5 +1,5 @@
 # ChangeGuard platform local development stack.
-# Starts the frontend, connector, Kafka, PostgreSQL, and Schema Registry for local development.
+# Starts the frontend, both services, Kafka, PostgreSQL, and Schema Registry for local development.
 # The frontend is served locally on port 5173 by default, and the connector service exposes its API on port 8081.
 
 services:
@@ -53,6 +53,40 @@ services:
       postgres:
         condition: service_healthy
       schema-registry:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - changuard_network
+
+  # Change Service shares PostgreSQL through its own schema; business listeners stay disabled.
+  change-service:
+    image: ${CHANGE_SERVICE_IMAGE:-changuard-change-service:0.0.1}
+    build:
+      context: ./backend
+      dockerfile: services/change-service/Dockerfile
+    init: true
+    ports:
+      - "${CHANGE_SERVICE_PORT:-8082}:8082"
+    environment:
+      SERVER_PORT: "8082"
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-changeguard}?currentSchema=change
+      DB_USERNAME: ${POSTGRES_USER:-changeguard}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events.v1}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-change-service-group}
+      SPRING_SECURITY_USER_NAME: ${CHANGE_SERVICE_USER:-changeguard}
+      SPRING_SECURITY_USER_PASSWORD: ${CHANGE_SERVICE_PASSWORD:-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -131,7 +165,8 @@ services:
       context: ./backend
       dockerfile: docker/schema-registry/Dockerfile
     ports:
-      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8082}:8081"
+      # Reserve 8082 for Change Service; internal Registry clients still use port 8081.
+      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8083}:8081"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081

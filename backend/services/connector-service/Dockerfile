@@ -10,6 +10,8 @@ RUN chmod +x mvnw
 COPY event-contracts event-contracts
 COPY docker/schema-registry/pom.xml docker/schema-registry/pom.xml
 COPY services/connector-service/pom.xml services/connector-service/pom.xml
+# Reactor discovery needs every module POM even when only the connector is selected.
+COPY services/change-service/pom.xml services/change-service/pom.xml
 COPY services/connector-service/src services/connector-service/src
 RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw --batch-mode --no-transfer-progress -pl services/connector-service -am -DskipTests package

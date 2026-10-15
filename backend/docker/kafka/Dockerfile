@@ -2,6 +2,7 @@
 FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS dependency-patches
 
 WORKDIR /patches
+# LZ4 1.11.4 fixes CVE-2026-106451; verify it alongside the Jackson modules.
 ENV JACKSON_VERSION=2.21.7 LZ4_VERSION=1.11.4
 COPY SHA256SUMS ./
 RUN set -eu; \
