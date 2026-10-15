@@ -1,0 +1,66 @@
+name: Frontend source security scan
+
+# Reusable workflow for scanning frontend code with a pinned Semgrep ruleset.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  sast:
+    name: Frontend source security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned Semgrep security rules
+        # A fixed rules commit keeps findings reproducible across workflow reruns.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: semgrep/semgrep-rules
+          ref: a84ff9cc2453ca91d581380de4b8b3f272f6f4be # 2026-09-22
+          path: .security-rules
+          sparse-checkout: |
+            javascript/lang/security
+            javascript/browser/security
+            typescript/lang/security
+            typescript/react/security
+          persist-credentials: false
+
+      - name: Scan JavaScript, TypeScript, and React sources
+        # Pin the scanner as well as its rules; disable network access and telemetry below.
+        env:
+          SEMGREP_IMAGE: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
+        run: |
+          # Store reports outside the read-only checkout so they can be uploaded afterward.
+          mkdir -p "$RUNNER_TEMP/frontend-sast"
+          docker run --rm --network none \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            --volume "$RUNNER_TEMP/frontend-sast:/reports" \
+            --workdir /src \
+            --env HOME=/tmp \
+            --env SEMGREP_ENABLE_VERSION_CHECK=0 \
+            --env SEMGREP_SEND_METRICS=off \
+            "$SEMGREP_IMAGE" \
+            semgrep scan --oss-only --metrics=off --disable-version-check --strict --error \
+              --config .security-rules/javascript/lang/security \
+              --config .security-rules/javascript/browser/security \
+              --config .security-rules/typescript/lang/security \
+              --config .security-rules/typescript/react/security \
+              --json-output=/reports/semgrep.json \
+              --sarif-output=/reports/semgrep.sarif frontend
+
+      - name: Upload source security reports
+        # Upload reports even if the scan fails or reports findings.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-sast
+          path: ${{ runner.temp }}/frontend-sast/
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,138 @@
+name: Backend container build, smoke test, and security scan
+
+# Build and run images in one job so smoke tests and scans use the same local images.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    name: Backend container build, smoke test, and security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # These Compose overrides select the images built below instead of default tags.
+    env:
+      CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
+      CHANGE_SERVICE_IMAGE: changuard-change-service:ci
+      KAFKA_IMAGE: changuard-kafka:4.2.2-security.1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.37.1
+          driver-opts: image=moby/buildkit:v0.33.1
+
+      - name: Build connector image
+        # Load each build into the runner's Docker daemon for local validation.
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/services/connector-service
+          load: true
+          push: false
+          tags: changuard-connector-service:ci
+          cache-from: type=gha,scope=connector-service
+          cache-to: type=gha,mode=max,scope=connector-service
+
+      - name: Build change-service image
+        id: change-build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/services/change-service
+          load: true
+          push: false
+          tags: ${{ env.CHANGE_SERVICE_IMAGE }}
+          cache-from: type=gha,scope=change-service
+          cache-to: type=gha,mode=max,scope=change-service
+
+      - name: Build patched Kafka image
+        id: kafka-build
+        # Still build Kafka after earlier failures so its independent image scan can run.
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/docker/kafka
+          load: true
+          push: false
+          tags: ${{ env.KAFKA_IMAGE }}
+          cache-from: type=gha,scope=kafka
+          cache-to: type=gha,mode=max,scope=kafka
+
+      - name: Smoke test backend services, PostgreSQL, and Kafka
+        # Use the built images, wait for dependency health, then check HTTP and Kafka traffic.
+        run: |
+          docker compose up --no-build --wait --wait-timeout 180 connector-service change-service
+          curl --fail --silent --show-error http://localhost:8081/actuator/health
+          curl --fail --silent --show-error http://localhost:8082/actuator/health/readiness
+          curl --fail --silent --show-error http://localhost:8082/actuator/health/liveness
+          sh backend/docker/kafka/smoke-test.sh
+
+      - name: Scan image OS packages, Java dependencies, and secrets
+        # Image scans run after smoke-test failures when their corresponding build succeeded.
+        if: always() && steps.build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: changuard-connector-service:ci
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-container-security.json
+
+      - name: Scan change-service image OS packages, Java dependencies, and secrets
+        if: always() && steps.change-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.CHANGE_SERVICE_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-change-container-security.json
+
+      - name: Scan Kafka image OS packages, Java dependencies, and secrets
+        if: always() && steps.kafka-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.KAFKA_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-kafka-security.json
+
+      - name: Upload container security report
+        # Collect all available scan reports even when a scan fails.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-container-security
+          path: |
+            backend-container-security.json
+            backend-change-container-security.json
+            backend-kafka-security.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Container diagnostics and cleanup
+        # Capture diagnostics and remove this runner's temporary stack after failures too.
+        if: always()
+        run: |
+          docker compose logs --no-color
+          docker compose down --volumes

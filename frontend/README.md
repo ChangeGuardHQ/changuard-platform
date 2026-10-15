@@ -43,7 +43,10 @@ state ownership, and the API integration direction.
 
 ## CI checks
 
-[Frontend CI](../.github/workflows/frontend_ci.yml) runs lint, TypeScript checks,
+[Frontend CI](../.github/workflows/frontend_ci.yml) is the entry point for
+separate reusable workflows covering verification, source security scans,
+CodeQL, and containers. See the [workflow guide](../.github/workflows/README.md)
+for the file map. Verification runs lint, TypeScript checks,
 all Vitest unit/integration tests, and the production build. It uploads JUnit
 test reports. Independent jobs run the npm dependency audit, Semgrep source
 security checks for JavaScript/TypeScript and React, Trivy dependency/secret/

@@ -1,7 +1,14 @@
 # ChangeGuard backend
 
-The backend currently contains one standalone Maven project: the
-[Connector Service](services/connector-service/pom.xml). It targets Java 21 and
+The backend contains two standalone Java 21 Maven projects:
+
+- [Connector Service](services/connector-service/pom.xml), for external
+  integration events and normalization.
+- [Change Service](services/change-service/README.md), with PostgreSQL, Kafka,
+  security, health checks, metrics, and container infrastructure. Its business
+  logic remains scaffolding.
+
+The following sections describe the Connector Service. It targets Java 21 and
 uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka,
 and Actuator. Its role is to receive external integration events and eventually
 publish normalized ChangeGuard events.
@@ -52,7 +59,7 @@ publishing is working.
 ## Docker development
 
 The repository's [Compose configuration](../docker-compose.yaml) runs the
-frontend, Connector Service, and a single-node Kafka broker:
+frontend, Connector Service, Change Service, PostgreSQL, and a single-node Kafka broker:
 
 ```sh
 docker compose up --build --wait
@@ -62,7 +69,9 @@ curl --fail http://localhost:8081/actuator/health
 Run these commands from the repository root. To start only the connector and
 its Kafka dependency, use `docker compose up --build --wait connector-service`.
 The frontend is available on port 5173, the connector on 8081, and Kafka on
-localhost:9092. Override host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`, and
+localhost:9092. The Change Service uses port 8082 and owns its PostgreSQL database.
+See its [development guide](services/change-service/README.md) for setup and tests.
+Override the connector stack's host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`, and
 `KAFKA_PORT`. Containers use `kafka:9092` for broker traffic. The broker uses
 plaintext listeners for local development and retains its data in the
 `kafka_data` volume. Stop the stack with `docker compose down`.
@@ -112,13 +121,16 @@ mock producer without a running broker.
 
 Reports are written to `services/connector-service/target/surefire-reports/`
 relative to this directory. There is currently no backend parent `pom.xml`.
-The [backend CI workflow](../.github/workflows/backend_ci.yml) targets
-`services/connector-service` directly and uses Temurin 21.0.12.1+1 with the Maven
+The [backend CI entry point](../.github/workflows/backend_ci.yml) calls separate
+reusable workflows for verification, source security scans, CodeQL, and
+container checks. See the [workflow guide](../.github/workflows/README.md) for
+the file map. Verification targets `connector-service` and `change-service`
+through a matrix and uses Temurin 21.0.12.1+1 with the Maven
 wrapper on Ubuntu 24.04. The `setup-java` input uses Adoptium's equivalent SemVer
 identifier, `21.0.12+101.0.LTS`, to select that exact release.
 Independent jobs run Maven verification, Semgrep Java/Spring source security
 scans, Trivy dependency/secret/configuration scans, and the container
-build, Compose startup check, Kafka message smoke test, and connector/Kafka image
+build, Compose startup check, Kafka message smoke test, and connector/change-service/Kafka image
 scans. The image scans cover packaged Java dependencies and operating-system
 packages. Trivy fails on HIGH or
 CRITICAL findings, including unfixed vulnerabilities. Test and security reports

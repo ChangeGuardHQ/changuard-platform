@@ -1,0 +1,52 @@
+name: Backend verification
+
+# Called by backend_ci.yml; the entry point controls scheduling and cancellation.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Verify ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Let both services finish so one failure does not hide the other's reports.
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [connector-service, change-service]
+    # Each service owns a standalone POM and Maven wrapper.
+    defaults:
+      run:
+        working-directory: backend/services/${{ matrix.service }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+
+      - name: Verify backend
+        # Verify tests and packaging with development-only defaults disabled.
+        run: sh ./mvnw --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false verify
+
+      - name: Upload unit and integration test reports
+        # Preserve available results after failures; matrix services need unique names.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-${{ matrix.service }}-test-reports
+          path: |
+            backend/services/${{ matrix.service }}/target/surefire-reports/
+            backend/services/${{ matrix.service }}/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7

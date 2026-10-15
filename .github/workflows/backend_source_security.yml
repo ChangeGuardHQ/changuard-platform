@@ -1,0 +1,57 @@
+name: Backend dependency, secret, and configuration scans
+
+# Called independently of compilation so build failures do not suppress source scans.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  source-security:
+    name: Backend dependency, secret, and configuration scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Scan backend dependencies, secrets, and Docker configuration
+        # HIGH and CRITICAL findings fail CI; the JSON report records the findings.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          version: v0.70.0
+          scan-ref: backend
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-filesystem-security.json
+
+      - name: Scan shared infrastructure configuration
+        # Include root Compose/workflow configuration even if the backend scan failed.
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          version: v0.70.0
+          scan-ref: .
+          # Generated dependencies and build output are covered by their own scans.
+          skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target,backend/services/change-service/target
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-configuration-security.json
+
+      - name: Upload security reports
+        # Keep available diagnostics even when a finding makes a scan fail.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-source-security
+          path: backend-*-security.json
+          if-no-files-found: warn
+          retention-days: 7

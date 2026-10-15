@@ -1,0 +1,100 @@
+spring:
+  application:
+    name: change-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/changeguard_change}
+    username: ${DB_USERNAME:changeguard}
+    password: ${DB_PASSWORD:changeguard}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 10000
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    # Enable after the domain migration placeholders contain real DDL.
+    # Running comment-only migrations would reserve their versions prematurely.
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:change-service-group}
+
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        # Preserve the full JSON envelope until the business event contract is implemented.
+        spring.json.value.default.type: tools.jackson.databind.JsonNode
+        spring.json.trusted.packages: "com.changeguard.change.event,tools.jackson.databind"
+        spring.json.use.type.headers: false
+
+    listener:
+      ack-mode: record
+      # Explicitly enable after business listeners are implemented.
+      auto-startup: ${KAFKA_LISTENER_AUTO_STARTUP:false}
+
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: ${SERVER_PORT:8082}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.changeguard.change: DEBUG
+    org.springframework.web: INFO
+    org.springframework.kafka: INFO
+    org.apache.kafka: WARN
+    org.hibernate.SQL: INFO
+
+changeguard:
+  kafka:
+    topics:
+      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events}

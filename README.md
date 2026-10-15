@@ -1655,11 +1655,14 @@ Kubernetes
 Terraform
 ```
 
-GitHub Actions workflows are maintained independently at
+GitHub Actions entry points are maintained independently at
 `.github/workflows/frontend_ci.yml` and `.github/workflows/backend_ci.yml`.
+Each calls separate reusable workflows for verification, dependency/secret/
+configuration scans, Semgrep, CodeQL, and container checks. See the
+[workflow guide](.github/workflows/README.md) for the file map and editing conventions.
 Frontend CI runs lint, TypeScript checks, all unit and integration tests, and the
 production build. Backend CI runs Maven verification for the standalone
-`backend/services/connector-service` project on Java 21. Both workflows have
+`connector-service` and `change-service` projects on Java 21. Both workflows have
 independent Semgrep source scans, dependency/secret/configuration scanning, and container
 build/startup/security checks. Frontend dependency checks also use `npm audit`;
 container scans cover runtime dependencies and operating-system packages.

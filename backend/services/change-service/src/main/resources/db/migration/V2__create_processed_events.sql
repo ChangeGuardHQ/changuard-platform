@@ -1,0 +1,1 @@
+-- TODO: Create the processed_events table when the idempotency model is defined.
