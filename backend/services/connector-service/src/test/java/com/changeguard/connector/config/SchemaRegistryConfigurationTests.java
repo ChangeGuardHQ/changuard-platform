@@ -20,7 +20,16 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 
+/**
+ * Verifies that the connector registers the reviewed event schemas in the
+ * Schema Registry idempotently and enforces the expected compatibility rules.
+ */
 class SchemaRegistryConfigurationTests {
+
+    /**
+     * A second startup should not create duplicate schema versions when the
+     * reviewed catalog is already registered.
+     */
     @Test
     void repeatedStartupRegistersTheReviewedCatalogWithoutCreatingNewVersions() throws Exception {
         var registry = new MockSchemaRegistryClient();

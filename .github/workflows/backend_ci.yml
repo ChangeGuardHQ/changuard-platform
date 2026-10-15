@@ -12,6 +12,7 @@ on:
       - ".github/scripts/test_summarize_trivy.py"
       - "backend/**"
       - "docker-compose.yaml"
+      - "docker-compose.github.yaml"
   push:
     paths:
       - ".github/workflows/backend_ci.yml"
@@ -19,6 +20,7 @@ on:
       - ".github/scripts/test_summarize_trivy.py"
       - "backend/**"
       - "docker-compose.yaml"
+      - "docker-compose.github.yaml"
   schedule:
     - cron: "37 6 * * 1"
   workflow_dispatch:
@@ -258,7 +260,9 @@ jobs:
           persist-credentials: false
 
       - name: Validate Compose configuration
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose --file docker-compose.yaml --file docker-compose.github.yaml config --no-interpolate --quiet
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3

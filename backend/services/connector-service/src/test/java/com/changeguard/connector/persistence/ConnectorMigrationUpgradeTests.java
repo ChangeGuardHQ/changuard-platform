@@ -39,7 +39,7 @@ class ConnectorMigrationUpgradeTests {
     @Autowired private JsonMapper json;
 
     @ParameterizedTest
-    @ValueSource(strings = {"1", "2"})
+    @ValueSource(strings = {"1", "2", "3"})
     void upgradePreservesAcceptedDeliveriesAndSupportsBothIntakeVersions(String previousVersion) {
         // Use a separate database so the application context and other tests
         // retain their current schema. The identifier contains only our prefix
@@ -74,10 +74,10 @@ class ConnectorMigrationUpgradeTests {
 
             Flyway latest = Flyway.configure().dataSource(dataSource).defaultSchema("connector")
                     .schemas("connector").locations("classpath:db/migration").load();
-            assertThat(latest.migrate().migrationsExecuted).isEqualTo(3 - Integer.parseInt(previousVersion));
+            assertThat(latest.migrate().migrationsExecuted).isEqualTo(4 - Integer.parseInt(previousVersion));
             latest.validate();
             assertOriginalV1Checksum(jdbc);
-            assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("3");
+            assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("4");
             assertThat(latest.migrate().migrationsExecuted).isZero();
 
             var pending = new OutboxEventRepository(jdbc).findPending(10);

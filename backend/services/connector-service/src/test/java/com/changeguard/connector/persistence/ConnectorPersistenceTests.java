@@ -59,7 +59,7 @@ class ConnectorPersistenceTests {
     @Test
     void migrationsAreValidatedAndNotReappliedOnRestart() {
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(integrations.findGitHubIntegration(ORGANIZATION, INTEGRATION)).isPresent();
     }

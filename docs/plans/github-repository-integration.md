@@ -25,12 +25,22 @@ publication flow, redelivery, compatibility rejection, and worker recovery.
 See [the persistence diagram and API](../../backend/README.md#connector-persistence)
 and [relay behavior](../../backend/README.md#outbox-relay).
 
-This is part of Deliverables 1, 2, 4, and 7, not completion of the GitHub integration.
+GitHub App setup and scoped connection APIs are implemented with the existing
+Basic authentication and deployment-owned organization/admin/account bindings.
+The start/callback flow uses signed, expiring, single-use state. Provider API
+verification establishes installation ownership and repository availability;
+selection is atomic and idempotent. Signed revocation, suspension, and repository
+removal commit into the common delivery ledger before acknowledgement. Connection
+revisions prevent stale provider lookups from undoing concurrent access changes.
+See the [connection README and diagrams](../../backend/services/connector-service/README.md).
+
+This completes the backend portions of Deliverables 3 and 4 and extends Deliverable
+6; it does not complete the browser-to-timeline GitHub integration.
 The backend parent, shared Avro catalog, and Schema Registry are implemented.
 `PullRequestMerged` is canonical; historical `CodeChangeMerged` outbox records
 upcast into the Avro stream while preserving identity. Opened-PR and commit
 schemas are ready, and their webhook adapters remain planned. Change Service,
-authorized GitHub App setup APIs, installation lifecycle reconciliation, downstream consumers, and
+browser connection screens, periodic provider reconciliation, downstream consumers, and
 the first live UI timeline remain to be built. `503` now means durable database
 processing failed; a Kafka outage leaves accepted events pending for relay retry.
 

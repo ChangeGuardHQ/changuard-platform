@@ -126,3 +126,17 @@ changeguard:
     # Set GITHUB_WEBHOOK_SECRET in deployment configuration instead of committing
     # a real secret to source control.
     webhook-secret: ${GITHUB_WEBHOOK_SECRET:change-me}
+
+    connection:
+      # Connection management is disabled until App credentials and trusted ownership are configured.
+      enabled: ${GITHUB_CONNECTION_ENABLED:false}
+      app-id: ${GITHUB_APP_ID:0}
+      app-slug: ${GITHUB_APP_SLUG:}
+      private-key-path: ${GITHUB_APP_PRIVATE_KEY_PATH:}
+      state-secret: ${GITHUB_INSTALLATION_STATE_SECRET:}
+      state-ttl: ${GITHUB_INSTALLATION_STATE_TTL:10m}
+      # Override this list in deployment configuration for multiple organizations.
+      organizations:
+        - organization-id: ${GITHUB_CONNECTION_ORGANIZATION_ID:}
+          github-account-id: ${GITHUB_CONNECTION_ACCOUNT_ID:0}
+          administrators: ${GITHUB_CONNECTION_ADMINISTRATORS:}

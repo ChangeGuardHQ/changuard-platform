@@ -149,6 +149,97 @@ class PersistentGitHubWebhookTests {
         assertThat(countReceipts()).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"deleted", "suspend"})
+    void signedInstallationLifecycleCommitsReceiptAndStopsIntake(String action) throws Exception {
+        byte[] body = ("{\"action\":\"" + action + "\",\"installation\":{\"id\":123,\"account\":{\"id\":99}}}")
+                .getBytes(StandardCharsets.UTF_8);
+        send("installation", "lifecycle-1", body).andExpect(status().isAccepted());
+        assertThat(lifecycleReceipts()).isEqualTo(1);
+        assertThat(integrations.findGitHubIntegration("internal-org", "integration-a").orElseThrow().status())
+                .isEqualTo(action.equals("deleted") ? IntegrationStatus.REVOKED : IntegrationStatus.DISCONNECTED);
+        send("pull_request", "delivery-1", fixture()).andExpect(status().isForbidden());
+        // A retry must not revoke an integration again after an authorized restoration.
+        integrations.setIntegrationStatus("internal-org", "integration-a", IntegrationStatus.ACTIVE);
+        send("installation", "lifecycle-1", body).andExpect(status().isAccepted());
+        assertThat(lifecycleReceipts()).isEqualTo(1);
+        assertThat(integrations.findActiveGitHubInstallation(123)).isPresent();
+        assertNothingAccepted();
+    }
+
+    @Test
+    void repositoryRemovalUsesStoredScopeAndDoesNotAffectAnotherOrganization() throws Exception {
+        integrations.createGitHubIntegration("org-b", "integration-b", 456);
+        integrations.connectRepository("org-b", "integration-b", "12345", "other/example", "main");
+        byte[] body = "{\"action\":\"removed\",\"installation\":{\"id\":123},\"repositories_removed\":[{\"id\":12345}]}"
+                .getBytes(StandardCharsets.UTF_8);
+        send("installation_repositories", "removed-1", body).andExpect(status().isAccepted());
+        assertThat(lifecycleReceipts()).isEqualTo(1);
+        assertThat(integrations.findActiveRepository("internal-org", "integration-a", "12345")).isEmpty();
+        assertThat(integrations.findActiveRepository("org-b", "integration-b", "12345")).isPresent();
+        send("pull_request", "delivery-1", fixture()).andExpect(status().isForbidden());
+        assertNothingAccepted();
+    }
+
+    @Test
+    void lifecycleWriteFailureRollsBackReceiptAndAccessChangeBefore503() throws Exception {
+        byte[] body = "{\"action\":\"suspend\",\"installation\":{\"id\":123,\"account\":{\"id\":99}}}"
+                .getBytes(StandardCharsets.UTF_8);
+        jdbc.sql("ALTER TABLE connector.integrations ADD CONSTRAINT reject_lifecycle CHECK (status = 'ACTIVE') NOT VALID").update();
+        try {
+            send("installation", "lifecycle-1", body).andExpect(status().isServiceUnavailable());
+            assertThat(lifecycleReceipts()).isZero();
+            assertThat(integrations.findActiveGitHubInstallation(123)).isPresent();
+        } finally {
+            jdbc.sql("ALTER TABLE connector.integrations DROP CONSTRAINT reject_lifecycle").update();
+        }
+        send("installation", "lifecycle-1", body).andExpect(status().isAccepted());
+        assertThat(lifecycleReceipts()).isEqualTo(1);
+    }
+
+    @Test
+    void verifiedProviderAccountCannotBeSpoofedByMergedOrLifecyclePayload() throws Exception {
+        jdbc.sql("""
+                UPDATE connector.integrations SET github_account_id = 99,
+                    github_account_login = 'changeguard', github_account_type = 'Organization'
+                """).update();
+        ObjectNode body = (ObjectNode) json.readTree(fixture());
+        ((ObjectNode) body.path("repository").path("owner")).put("id", 200);
+        send("pull_request", "wrong-owner", json.writeValueAsBytes(body)).andExpect(status().isForbidden());
+        send("installation", "wrong-account", "{\"action\":\"deleted\",\"installation\":{\"id\":123,\"account\":{\"id\":200}}}"
+                .getBytes(StandardCharsets.UTF_8)).andExpect(status().isForbidden());
+        assertThat(lifecycleReceipts()).isZero();
+        assertThat(integrations.findActiveGitHubInstallation(123)).isPresent();
+        assertNothingAccepted();
+        send("pull_request", "correct-owner", fixture()).andExpect(status().isAccepted());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{broken", "{\"action\":\"deleted\",\"installation\":{\"id\":\"123\"}}",
+            "{\"action\":\"deleted\",\"installation\":{\"id\":123}}"})
+    void malformedSupportedLifecycleIsRejectedWithoutWrites(String body) throws Exception {
+        send("installation", "bad-lifecycle", body.getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
+        assertThat(lifecycleReceipts()).isZero();
+        assertThat(integrations.findActiveGitHubInstallation(123)).isPresent();
+        assertNothingAccepted();
+    }
+
+    private int lifecycleReceipts() {
+        return jdbc.sql("SELECT count(*) FROM connector.webhook_receipts WHERE provider_action IS NOT NULL")
+                .query(Integer.class).single();
+    }
+
+    @Test
+    void mergeAndLifecycleUseOneDeliveryDeduplicationLedger() throws Exception {
+        send("pull_request", "shared-delivery", fixture()).andExpect(status().isAccepted());
+        byte[] body = "{\"action\":\"suspend\",\"installation\":{\"id\":123,\"account\":{\"id\":99}}}"
+                .getBytes(StandardCharsets.UTF_8);
+        send("installation", "shared-delivery", body).andExpect(status().isAccepted());
+        assertThat(countReceipts()).isEqualTo(1);
+        assertThat(lifecycleReceipts()).isZero();
+        assertThat(integrations.findActiveGitHubInstallation(123)).isPresent();
+    }
+
     private ResultActions send(String event, String delivery, byte[] body) throws Exception {
         return mvc.perform(post("/api/v1/integrations/github/webhook").contentType(MediaType.APPLICATION_JSON)
                 .header("X-GitHub-Event", event).header("X-GitHub-Delivery", delivery)
@@ -156,7 +247,8 @@ class PersistentGitHubWebhookTests {
     }
 
     private int countReceipts() {
-        return jdbc.sql("SELECT count(*) FROM connector.webhook_receipts").query(Integer.class).single();
+        return jdbc.sql("SELECT count(*) FROM connector.webhook_receipts WHERE provider_event_type = 'pull_request'")
+                .query(Integer.class).single();
     }
 
     private void assertNothingAccepted() {
