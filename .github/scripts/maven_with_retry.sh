@@ -24,6 +24,10 @@ for attempt in 1 2 3; do
     fi
     status=${statuses[0]}
 
+    # A failed test can itself print a resolution error; never retry that test failure.
+    if grep -Eq '\[ERROR\].*(COMPILATION (ERROR|FAILURE)|Compilation failure|There are test failures|There was an error in the forked process|Tests run: .* (Failures|Errors): [1-9])' "$log_file"; then
+        exit "$status"
+    fi
     # Compilation, tests, and other build failures should fail immediately.
     if ! grep -Eq '\[ERROR\].*(Failed to read artifact descriptor|Could not (transfer|resolve)|could not be resolved|Non-resolvable .*POM)' "$log_file"; then
         exit "$status"

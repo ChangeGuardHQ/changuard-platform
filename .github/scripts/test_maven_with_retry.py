@@ -12,7 +12,7 @@ from pathlib import Path
 class MavenRetryTests(unittest.TestCase):
     script = Path(__file__).with_name("maven_with_retry.sh").resolve()
 
-    def run_maven(self, results):
+    def run_maven(self, results, goals=("install",)):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "results.json").write_text(json.dumps(results))
@@ -35,7 +35,7 @@ sys.exit(result[0])
             sleeper.chmod(0o755)
             environment = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", RUNNER_TEMP=str(root))
             result = subprocess.run(
-                ["bash", str(self.script), sys.executable, str(command), "-Dexample=value with spaces", "install"],
+                ["bash", str(self.script), sys.executable, str(command), "-Dexample=value with spaces", *goals],
                 cwd=root, env=environment, capture_output=True, text=True, check=False,
             )
             calls = json.loads((root / "attempts.json").read_text())
@@ -86,6 +86,26 @@ sys.exit(result[0])
                 self.assertEqual(result.returncode, 1)
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(delays, [])
+
+    def test_verification_retries_unavailable_cached_descriptor_without_skipping_tests(self):
+        # Maven revalidates cache entries whose origin is unavailable in the current build.
+        message = (
+            "[ERROR] Failed to read artifact descriptor for org.springframework.boot:spring-boot-autoconfigure:jar:4.0.8\n"
+            "[ERROR] (present, but unavailable): Could not transfer artifact from/to central: Connection reset"
+        )
+        result, calls, delays = self.run_maven([[1, message], [0, "[INFO] BUILD SUCCESS"]], goals=("verify",))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(delays, ["10"])
+        self.assertTrue(all("verify" in call and "-DskipTests" not in call for call in calls))
+
+    def test_test_failure_with_resolution_diagnostics_is_not_retried(self):
+        # Dependency wording inside test output must not turn a failing test into a retry.
+        message = "[ERROR] Could not resolve test fixture\n[ERROR] There are test failures."
+        result, calls, delays = self.run_maven([[1, message]], goals=("verify",))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(delays, [])
 
 
 if __name__ == "__main__":
