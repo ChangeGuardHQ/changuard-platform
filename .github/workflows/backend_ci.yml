@@ -6,11 +6,14 @@ on:
   pull_request:
     paths:
       - ".github/workflows/backend_*.yml"
+      # Report-summary changes need the same validation as the scanners that use them.
+      - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
   push:
     paths:
       - ".github/workflows/backend_*.yml"
+      - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
   # Refresh security results weekly even when application code has not changed.

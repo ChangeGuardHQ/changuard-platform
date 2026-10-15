@@ -95,7 +95,8 @@ services:
       - changuard_network
 
   kafka:
-    image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.1}
+    # Keep the local broker on the same dependency patches scanned by backend CI.
+    image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.2}
     build:
       context: ./backend/docker/kafka
       dockerfile: Dockerfile

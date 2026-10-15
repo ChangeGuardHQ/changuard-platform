@@ -76,8 +76,8 @@ Override the connector stack's host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`
 plaintext listeners for local development and retains its data in the
 `kafka_data` volume. Stop the stack with `docker compose down`.
 
-Kafka uses the locally built `changuard-kafka:4.2.2-security.1` image, which
-patches the upstream image's Jackson and libexpat vulnerabilities. All dependency
+Kafka uses the locally built `changuard-kafka:4.2.2-security.2` image, which
+patches the upstream image's Jackson, LZ4, and libexpat vulnerabilities. All dependency
 versions are pinned, and downloaded JARs are checked against their published
 SHA-256 hashes. See the [Kafka image documentation](docker/kafka/README.md) for
 the patches, JVM archive handling, and message smoke test. `KAFKA_IMAGE` can
@@ -150,8 +150,10 @@ the [shared CodeQL setup instructions](../README.md#25-cicd).
 Local validation on October 4, 2026 found no HIGH/CRITICAL findings in the
 connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`
 still has five HIGH findings; the [Kafka Dockerfile](docker/kafka/Dockerfile)
-fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. CI builds and scans that
-patched image and keeps the same HIGH/CRITICAL failure policy.
+fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. The `security.2` image also
+updates LZ4 Java to 1.11.4 for `CVE-2026-106451`. CI builds and scans the patched
+image and keeps the same HIGH/CRITICAL failure policy. Image scan findings are
+summarized in the job log, with the full JSON reports retained as artifacts.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
 schedule also reruns checks as vulnerability databases change. The workflows

@@ -18,6 +18,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify security-report summaries
+        # Diagnostics must preserve findings without exposing secrets or injecting log commands.
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+
       - name: Scan backend dependencies, secrets, and Docker configuration
         # HIGH and CRITICAL findings fail CI; the JSON report records the findings.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

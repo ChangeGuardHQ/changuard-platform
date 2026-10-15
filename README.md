@@ -1703,8 +1703,9 @@ exact versions matching the lockfile.
 | Node.js | `24.21.0` |
 | Eclipse Temurin | `21.0.12.1+1` |
 | Alpine Docker base | `3.24` |
-| Kafka | `4.2.2` (image `4.2.2-security.1`) |
+| Kafka | `4.2.2` (image `4.2.2-security.2`) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
+| Kafka LZ4 Java | `1.11.4` |
 | Kafka libexpat | `2.8.5-r0` |
 | CodeQL bundle | `2.27.1` |
 | Semgrep CE | `1.179.0` (image digest pinned) |

@@ -16,7 +16,7 @@ jobs:
     env:
       CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
       CHANGE_SERVICE_IMAGE: changuard-change-service:ci
-      KAFKA_IMAGE: changuard-kafka:4.2.2-security.1
+      KAFKA_IMAGE: changuard-kafka:4.2.2-security.2
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -116,6 +116,15 @@ jobs:
           exit-code: "1"
           format: json
           output: backend-kafka-security.json
+
+      - name: Print image security findings
+        # JSON artifacts keep the full result; print actionable fields without secret matches.
+        if: always()
+        run: |
+          python3 .github/scripts/summarize_trivy.py \
+            backend-container-security.json \
+            backend-change-container-security.json \
+            backend-kafka-security.json
 
       - name: Upload container security report
         # Collect all available scan reports even when a scan fails.

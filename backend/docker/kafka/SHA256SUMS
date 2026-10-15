@@ -7,3 +7,4 @@ b8f62f98363ed9aa259b3a479a64fcbe7e081158a8bec6733972e900d12f4e47  jackson-dataty
 32473ee172e0c181ba63688ee4a94349de77de05bd4279d0846a9515a56bb0fe  jackson-jakarta-rs-json-provider-2.21.7.jar
 b41fb816cbaa5f2393136cf1c525e0d9a9f9bcea14207a09e8e703df53351596  jackson-module-blackbird-2.21.7.jar
 76054ca6e252e7142fec9c0e9a146bd8c43cde13dddf2d1cdaecd9db981c2ddc  jackson-module-jakarta-xmlbind-annotations-2.21.7.jar
+58c8e0b813960d2a248e050c353baea73139b48a2ffc55382d42c69707e17325  lz4-java-1.11.4.jar
