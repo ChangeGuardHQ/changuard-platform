@@ -22,6 +22,15 @@ building each through the Maven reactor with its shared dependencies. Backend
 container checks start both services with PostgreSQL, Kafka, and Schema Registry. Frontend
 verification runs lint, TypeScript checks, Vitest, and the production build.
 
+Backend dependency scans first install the reactor through
+[`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The helper retries only
+dependency/plugin resolution errors, with at most three attempts and 10/20-second
+delays. Each attempt uses Maven's `--update-snapshots` to recheck cached missing
+releases and `--errors` to retain repository diagnostics. Compilation and test
+failures stop immediately, and exhausted retries preserve Maven's failure status.
+The backend parent lists Maven Central before Confluent for ordinary dependencies;
+Maven plugins continue to use the default Central plugin repository.
+
 ## Editing workflows
 
 - Include concise inline comments explaining workflow intent, conditions,

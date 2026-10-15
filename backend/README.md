@@ -302,7 +302,12 @@ images address them. The source-security job now sets up Java, restores Maven's
 dependency cache, and runs the backend reactor's `install` goal with tests skipped
 before scanning. This resolves parent/BOM and local module artifacts before
 Trivy reads the POMs, avoiding incomplete scans when remote Maven requests are
-rate limited. Dependency resolution errors fail the job. The HIGH/CRITICAL gate
+rate limited. Maven Central is queried before Confluent for ordinary dependencies.
+The preparation command retries dependency/plugin resolution failures at most
+three times, with 10/20-second delays and a forced recheck of cached missing
+releases. Full Maven errors remain visible; compilation errors and exhausted
+resolution retries fail the job. See the [CI helper](../.github/scripts/maven_with_retry.sh).
+The HIGH/CRITICAL gate
 continues to include unfixed findings.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
