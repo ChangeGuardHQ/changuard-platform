@@ -12,11 +12,12 @@ jobs:
     name: Backend container build, smoke test, and security scan
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # These Compose overrides select the images built below instead of default tags.
     env:
       CONNECTOR_SERVICE_IMAGE: changuard-connector-service:ci
       CHANGE_SERVICE_IMAGE: changuard-change-service:ci
       KAFKA_IMAGE: changuard-kafka:4.2.2-security.2
+      POSTGRES_IMAGE: changuard-postgres:18.6-security.1
+      SCHEMA_REGISTRY_IMAGE: changuard-schema-registry:8.3.2-security.2
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -24,20 +25,22 @@ jobs:
           persist-credentials: false
 
       - name: Validate Compose configuration
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose --file docker-compose.yaml --file docker-compose.github.yaml config --no-interpolate --quiet
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           version: v0.37.1
-          driver-opts: image=moby/buildkit:v0.33.1
+          driver-opts: image=mirror.gcr.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Build connector image
-        # Load each build into the runner's Docker daemon for local validation.
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: backend/services/connector-service
+          context: backend
+          file: backend/services/connector-service/Dockerfile
           load: true
           push: false
           tags: changuard-connector-service:ci
@@ -48,7 +51,8 @@ jobs:
         id: change-build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: backend/services/change-service
+          context: backend
+          file: backend/services/change-service/Dockerfile
           load: true
           push: false
           tags: ${{ env.CHANGE_SERVICE_IMAGE }}
@@ -57,7 +61,6 @@ jobs:
 
       - name: Build patched Kafka image
         id: kafka-build
-        # Still build Kafka after earlier failures so its independent image scan can run.
         if: ${{ !cancelled() }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -68,17 +71,48 @@ jobs:
           cache-from: type=gha,scope=kafka
           cache-to: type=gha,mode=max,scope=kafka
 
-      - name: Smoke test backend services, PostgreSQL, and Kafka
-        # Use the built images, wait for dependency health, then check HTTP and Kafka traffic.
+      - name: Build hardened PostgreSQL image
+        id: postgres-build
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend/docker/postgres
+          load: true
+          push: false
+          tags: ${{ env.POSTGRES_IMAGE }}
+          cache-from: type=gha,scope=postgres
+          cache-to: type=gha,mode=max,scope=postgres
+
+      - name: Build hardened Schema Registry image
+        id: registry-build
+        if: ${{ !cancelled() }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend
+          file: backend/docker/schema-registry/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.SCHEMA_REGISTRY_IMAGE }}
+          cache-from: type=gha,scope=schema-registry
+          cache-to: type=gha,mode=max,scope=schema-registry
+
+      - name: Verify PostgreSQL startup and retained data
+        run: sh backend/docker/postgres/smoke-test.sh
+
+      - name: Smoke test services, migrations, Kafka, and registered contracts
+        # Start both APIs against the shared database, preserving connector's migration checks.
         run: |
           docker compose up --no-build --wait --wait-timeout 180 connector-service change-service
           curl --fail --silent --show-error http://localhost:8081/actuator/health
           curl --fail --silent --show-error http://localhost:8082/actuator/health/readiness
           curl --fail --silent --show-error http://localhost:8082/actuator/health/liveness
+          docker compose exec -T postgres psql -U changeguard -d changeguard -v ON_ERROR_STOP=1 \
+            -c 'SELECT version FROM connector.flyway_schema_history WHERE success;' \
+            -c 'SELECT count(*) FROM connector.outbox_events;'
           sh backend/docker/kafka/smoke-test.sh
+          python3 backend/docker/schema-registry/verify-contracts.py
 
       - name: Scan image OS packages, Java dependencies, and secrets
-        # Image scans run after smoke-test failures when their corresponding build succeeded.
         if: always() && steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -92,6 +126,7 @@ jobs:
           output: backend-container-security.json
 
       - name: Scan change-service image OS packages, Java dependencies, and secrets
+        # Keep the same HIGH/CRITICAL gate for the added service image.
         if: always() && steps.change-build.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -117,17 +152,38 @@ jobs:
           format: json
           output: backend-kafka-security.json
 
+      - name: Scan PostgreSQL image packages and secrets
+        if: always() && steps.postgres-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.POSTGRES_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-postgres-security.json
+
+      - name: Scan Schema Registry packages, Java dependencies, and secrets
+        if: always() && steps.registry-build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.SCHEMA_REGISTRY_IMAGE }}
+          version: v0.70.0
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: backend-schema-registry-security.json
+
       - name: Print image security findings
-        # JSON artifacts keep the full result; print actionable fields without secret matches.
+        # Expose actionable fields in logs while keeping matched secret contents out.
         if: always()
-        run: |
-          python3 .github/scripts/summarize_trivy.py \
-            backend-container-security.json \
-            backend-change-container-security.json \
-            backend-kafka-security.json
+        run: python3 .github/scripts/summarize_trivy.py backend-container-security.json backend-change-container-security.json backend-kafka-security.json backend-postgres-security.json backend-schema-registry-security.json
 
       - name: Upload container security report
-        # Collect all available scan reports even when a scan fails.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -136,11 +192,12 @@ jobs:
             backend-container-security.json
             backend-change-container-security.json
             backend-kafka-security.json
+            backend-postgres-security.json
+            backend-schema-registry-security.json
           if-no-files-found: warn
           retention-days: 7
 
       - name: Container diagnostics and cleanup
-        # Capture diagnostics and remove this runner's temporary stack after failures too.
         if: always()
         run: |
           docker compose logs --no-color

@@ -10,12 +10,14 @@ on:
       - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
+      - "docker-compose.github.yaml"
   push:
     paths:
       - ".github/workflows/backend_*.yml"
       - ".github/scripts/**"
       - "backend/**"
       - "docker-compose.yaml"
+      - "docker-compose.github.yaml"
   # Refresh security results weekly even when application code has not changed.
   schedule:
     - cron: "37 6 * * 1"

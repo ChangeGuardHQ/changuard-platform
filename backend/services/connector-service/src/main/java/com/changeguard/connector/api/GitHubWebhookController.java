@@ -2,7 +2,6 @@ package com.changeguard.connector.api;
 
 import java.util.regex.Pattern;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,17 +31,16 @@ public class GitHubWebhookController {
      */
     private static final Pattern SIGNATURE_PATTERN = Pattern.compile("sha256=[0-9a-fA-F]{64}");
 
-    private final ObjectProvider<GitHubWebhookService> webhookServiceProvider;
+    private final GitHubWebhookService webhookService;
 
     /**
-     * Creates the controller with a provider for the active webhook
+     * Creates the controller with the active webhook
      * implementation.
      *
-     * @param webhookServiceProvider provider used to resolve the webhook
-     * service
+     * @param webhookService the durable webhook processor
      */
-    public GitHubWebhookController(ObjectProvider<GitHubWebhookService> webhookServiceProvider) {
-        this.webhookServiceProvider = webhookServiceProvider;
+    public GitHubWebhookController(GitHubWebhookService webhookService) {
+        this.webhookService = webhookService;
     }
 
     /**
@@ -56,8 +54,8 @@ public class GitHubWebhookController {
      * @param payload raw webhook payload body
      * @return HTTP 202 Accepted when the delivery is accepted for processing
      * @throws ResponseStatusException 400 when required headers are missing,
-     * 401 when the signature is malformed, or 503 when the backing service is
-     * unavailable
+     * 401 when the signature is invalid, 403 for an unconnected repository,
+     * or 503 when durable persistence is unavailable
      */
     @PostMapping(path = "/webhook", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> receiveWebhook(
@@ -70,12 +68,6 @@ public class GitHubWebhookController {
         }
         if (signature == null || !SIGNATURE_PATTERN.matcher(signature).matches()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or malformed webhook signature");
-        }
-
-        // Allow the service to start while ingestion is being implemented, without acknowledging lost deliveries.
-        GitHubWebhookService webhookService = webhookServiceProvider.getIfAvailable();
-        if (webhookService == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Webhook processing is unavailable");
         }
 
         // Preserve the exact bytes: the service must verify the HMAC before parsing this body.

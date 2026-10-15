@@ -13,8 +13,9 @@ five independent reusable workflows.
 | CodeQL analysis | [backend_codeql.yml](backend_codeql.yml) | [frontend_codeql.yml](frontend_codeql.yml) |
 | Container builds, smoke tests, and image scans | [backend_container.yml](backend_container.yml) | [frontend_container.yml](frontend_container.yml) |
 
-Backend verification uses a matrix for `connector-service` and `change-service`.
-Backend container checks start both services with PostgreSQL and Kafka. Frontend
+Backend verification uses a matrix for `connector-service` and `change-service`,
+building each through the Maven reactor with its shared dependencies. Backend
+container checks start both services with PostgreSQL, Kafka, and Schema Registry. Frontend
 verification runs lint, TypeScript checks, Vitest, and the production build.
 
 ## Editing workflows

@@ -19,7 +19,6 @@ jobs:
           persist-credentials: false
 
       - name: Check out pinned Semgrep security rules
-        # A fixed rules commit keeps findings reproducible across workflow reruns.
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: semgrep/semgrep-rules
@@ -31,10 +30,9 @@ jobs:
           persist-credentials: false
 
       - name: Scan Java and Spring sources
-        # Pin the scanner as well as its rules; disable network access and telemetry below.
         env:
-          SEMGREP_IMAGE: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
-        # Mount source read-only and write reports to a separate writable runner directory.
+          # Use the verified public cache to avoid Docker Hub's anonymous pull limit.
+          SEMGREP_IMAGE: mirror.gcr.io/semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
         run: |
           mkdir -p "$RUNNER_TEMP/backend-sast"
           docker run --rm --network none \
@@ -52,7 +50,6 @@ jobs:
               --sarif-output=/reports/semgrep.sarif backend
 
       - name: Upload source security reports
-        # Preserve findings and scanner diagnostics even when Semgrep exits unsuccessfully.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

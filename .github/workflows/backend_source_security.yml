@@ -22,8 +22,19 @@ jobs:
         # Diagnostics must preserve findings without exposing secrets or injecting log commands.
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
+      - name: Set up Java for dependency resolution
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21.0.12+101.0.LTS"
+          cache: maven
+          cache-dependency-path: backend/**/pom.xml
+
+      - name: Resolve backend dependencies before scanning
+        # Populate parent/BOM and reactor artifacts so Trivy can resolve the full graph locally.
+        run: sh backend/services/connector-service/mvnw -f backend/pom.xml --batch-mode --no-transfer-progress -DskipTests install
+
       - name: Scan backend dependencies, secrets, and Docker configuration
-        # HIGH and CRITICAL findings fail CI; the JSON report records the findings.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -36,22 +47,23 @@ jobs:
           output: backend-filesystem-security.json
 
       - name: Scan shared infrastructure configuration
-        # Include root Compose/workflow configuration even if the backend scan failed.
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           version: v0.70.0
           scan-ref: .
-          # Generated dependencies and build output are covered by their own scans.
-          skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target,backend/services/change-service/target
+          skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target,backend/services/change-service/target,backend/event-contracts/target,backend/docker/schema-registry/target
           severity: HIGH,CRITICAL
           exit-code: "1"
           format: json
           output: backend-configuration-security.json
 
+      - name: Print source security findings
+        if: always()
+        run: python3 .github/scripts/summarize_trivy.py backend-filesystem-security.json backend-configuration-security.json
+
       - name: Upload security reports
-        # Keep available diagnostics even when a finding makes a scan fail.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

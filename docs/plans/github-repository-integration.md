@@ -5,6 +5,45 @@ deliverables. It follows the platform's intended order: foundation, canonical
 events, then GitHub ingestion. Each deliverable should be merged independently
 where practical; avoid building later stages before their prerequisites exist.
 
+## Current connector progress
+
+The connector persistence foundation is implemented: Compose includes PostgreSQL
+18.6, Flyway owns the `connector` schema, and Spring JDBC stores organization-owned
+GitHub installations, selected repositories, webhook receipts, and canonical JSONB
+outbox records. Accepted merged-change receipts and outbox records commit atomically;
+integration/delivery uniqueness absorbs concurrent redelivery. Real PostgreSQL
+tests cover migrations, ownership, disconnect/revocation, duplicates, and rollback.
+The HTTP processor verifies raw-byte HMAC before parsing, resolves the internal
+organization through the stored installation binding, checks the active selected
+repository, and commits supported merges before returning `202`. Verified
+unsupported activity is ignored; invalid signatures/payloads and unconnected
+repositories are rejected. A scheduled relay leases due events, publishes their
+stored JSON envelopes as registered Avro to Kafka, and marks success after acknowledgement. Retry
+backoff and lease expiry survive restart; downstream consumers must deduplicate.
+Real PostgreSQL, Kafka, and Schema Registry tests cover the complete HTTP-to-Avro
+publication flow, redelivery, compatibility rejection, and worker recovery.
+See [the persistence diagram and API](../../backend/README.md#connector-persistence)
+and [relay behavior](../../backend/README.md#outbox-relay).
+
+GitHub App setup and scoped connection APIs are implemented with the existing
+Basic authentication and deployment-owned organization/admin/account bindings.
+The start/callback flow uses signed, expiring, single-use state. Provider API
+verification establishes installation ownership and repository availability;
+selection is atomic and idempotent. Signed revocation, suspension, and repository
+removal commit into the common delivery ledger before acknowledgement. Connection
+revisions prevent stale provider lookups from undoing concurrent access changes.
+See the [connection README and diagrams](../../backend/services/connector-service/README.md).
+
+This completes the backend portions of Deliverables 3 and 4 and extends Deliverable
+6; it does not complete the browser-to-timeline GitHub integration.
+The backend parent, shared Avro catalog, and Schema Registry are implemented.
+`PullRequestMerged` is canonical; historical `CodeChangeMerged` outbox records
+upcast into the Avro stream while preserving identity. Opened-PR and commit
+schemas are ready, and their webhook adapters remain planned. Change Service,
+browser connection screens, periodic provider reconciliation, downstream consumers, and
+the first live UI timeline remain to be built. `503` now means durable database
+processing failed; a Kafka outage leaves accepted events pending for relay retry.
+
 ## GitHub is hosted; ChangeGuard runs locally during development
 
 The initial integration targets **GitHub.com**, which is already hosted by
@@ -111,6 +150,13 @@ service-to-PostgreSQL and producer-to-Kafka integration tests.
 **Depends on:** README V1 Delivery Plan Phase 1.
 
 ### 2. Define and validate the canonical code event contract
+
+**Status: implemented schemas and merged-PR publication.** The
+[shared module](../../backend/event-contracts/README.md) generates Avro records,
+checks released compatibility, and registers the catalog under `BACKWARD_TRANSITIVE`.
+[Schema Registry](../../backend/docker/schema-registry/README.md) persists history
+in Kafka and rejects incompatible registrations. Other code-event adapters are
+tracked in the intake deliverable below.
 
 **Deliverable:** versioned Avro schemas for `PullRequestOpened`,
 `PullRequestMerged`, and `CommitCreated`, using the common event envelope.

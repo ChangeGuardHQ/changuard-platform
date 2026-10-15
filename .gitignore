@@ -2,7 +2,6 @@
 .env
 .env.*
 !.env.example
-!.env.*.example
 *.local
 
 # Node.js / frontend build output
@@ -26,6 +25,8 @@ build/
 hs_err_pid*
 
 # Test and tooling output
+__pycache__/
+*.py[cod]
 .nyc_output/
 playwright-report/
 test-results/

@@ -13,7 +13,7 @@ import tools.jackson.databind.node.ObjectNode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class CodeChangeMergedEventTests {
+class PullRequestMergedEventTests {
 
     private static final Instant MERGED_AT = Instant.parse("2026-10-04T12:00:00Z");
     private static final Instant RECEIVED_AT = Instant.parse("2026-10-04T12:00:02Z");
@@ -21,8 +21,8 @@ class CodeChangeMergedEventTests {
     @Test
     void keepsIdentityStableAcrossRedeliveryWhilePreservingBothTimestamps() {
         var merge = merge("delivery-1", "release-manager", "Fix checkout", MERGED_AT);
-        var first = CodeChangeMergedEvent.fromGitHub(merge, "org-1", "integration-1", RECEIVED_AT);
-        var repeated = CodeChangeMergedEvent.fromGitHub(merge, "org-1", "integration-1",
+        var first = PullRequestMergedEvent.fromGitHub(merge, "org-1", "integration-1", RECEIVED_AT);
+        var repeated = PullRequestMergedEvent.fromGitHub(merge, "org-1", "integration-1",
                 RECEIVED_AT.plusSeconds(60));
 
         assertThat(first.eventId()).isEqualTo("c2120429-d5d9-317f-8364-3df214dd2242");
@@ -35,13 +35,13 @@ class CodeChangeMergedEventTests {
     @Test
     void scopesIdentityToOrganizationIntegrationAndDelivery() {
         var merge = merge("delivery-1", "actor", "Title", MERGED_AT);
-        String eventId = CodeChangeMergedEvent.fromGitHub(merge, "org-1", "integration-1", RECEIVED_AT).eventId();
+        String eventId = PullRequestMergedEvent.fromGitHub(merge, "org-1", "integration-1", RECEIVED_AT).eventId();
 
-        assertThat(CodeChangeMergedEvent.fromGitHub(merge, "org-2", "integration-1", RECEIVED_AT).eventId())
+        assertThat(PullRequestMergedEvent.fromGitHub(merge, "org-2", "integration-1", RECEIVED_AT).eventId())
                 .isNotEqualTo(eventId);
-        assertThat(CodeChangeMergedEvent.fromGitHub(merge, "org-1", "integration-2", RECEIVED_AT).eventId())
+        assertThat(PullRequestMergedEvent.fromGitHub(merge, "org-1", "integration-2", RECEIVED_AT).eventId())
                 .isNotEqualTo(eventId);
-        assertThat(CodeChangeMergedEvent.fromGitHub(
+        assertThat(PullRequestMergedEvent.fromGitHub(
                 merge("delivery-2", "actor", "Title", MERGED_AT), "org-1", "integration-1", RECEIVED_AT).eventId())
                 .isNotEqualTo(eventId);
     }
@@ -49,22 +49,22 @@ class CodeChangeMergedEventTests {
     @Test
     void doesNotCollideWhenIdentityComponentsContainSeparators() {
         var merge = merge("delivery-1", "actor", "Title", MERGED_AT);
-        var first = CodeChangeMergedEvent.fromGitHub(merge, "org:integration", "1", RECEIVED_AT);
-        var second = CodeChangeMergedEvent.fromGitHub(merge, "org", "integration:1", RECEIVED_AT);
+        var first = PullRequestMergedEvent.fromGitHub(merge, "org:integration", "1", RECEIVED_AT);
+        var second = PullRequestMergedEvent.fromGitHub(merge, "org", "integration:1", RECEIVED_AT);
 
         assertThat(first.eventId()).isNotEqualTo(second.eventId());
     }
 
     @Test
     void preservesOptionalDataAndDoesNotInventActorClassificationOrCorrelation() {
-        var event = CodeChangeMergedEvent.fromGitHub(
+        var event = PullRequestMergedEvent.fromGitHub(
                 merge("delivery-1", "automation-bot", null, MERGED_AT), "org-1", "integration-1", RECEIVED_AT);
 
-        assertThat(event.actor()).isEqualTo(new CodeChangeMergedEvent.Actor(
-                CodeChangeMergedEvent.ActorType.UNKNOWN, "automation-bot"));
+        assertThat(event.actor()).isEqualTo(new PullRequestMergedEvent.Actor(
+                PullRequestMergedEvent.ActorType.UNKNOWN, "automation-bot"));
         assertThat(event.correlation()).isNull();
         assertThat(event.payload().pullRequestTitle()).isNull();
-        assertThat(CodeChangeMergedEvent.fromGitHub(
+        assertThat(PullRequestMergedEvent.fromGitHub(
                 merge("delivery-1", null, null, MERGED_AT), "org-1", "integration-1", RECEIVED_AT).actor()).isNull();
     }
 
@@ -72,30 +72,30 @@ class CodeChangeMergedEventTests {
     void requiresTrustedTenantContextAndRealTimestamps() {
         var merge = merge("delivery-1", "actor", "Title", MERGED_AT);
 
-        assertThatThrownBy(() -> CodeChangeMergedEvent.fromGitHub(merge, " ", "integration-1", RECEIVED_AT))
+        assertThatThrownBy(() -> PullRequestMergedEvent.fromGitHub(merge, " ", "integration-1", RECEIVED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Organization ID is required");
-        assertThatThrownBy(() -> CodeChangeMergedEvent.fromGitHub(merge, "org-1", null, RECEIVED_AT))
+        assertThatThrownBy(() -> PullRequestMergedEvent.fromGitHub(merge, "org-1", null, RECEIVED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Integration ID is required");
-        assertThatThrownBy(() -> CodeChangeMergedEvent.fromGitHub(merge, "org-1", "integration-1", null))
+        assertThatThrownBy(() -> PullRequestMergedEvent.fromGitHub(merge, "org-1", "integration-1", null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Receipt timestamp is required");
-        assertThatThrownBy(() -> CodeChangeMergedEvent.fromGitHub(
+        assertThatThrownBy(() -> PullRequestMergedEvent.fromGitHub(
                 merge("delivery-1", "actor", "Title", null), "org-1", "integration-1", RECEIVED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Merge timestamp is required");
-        assertThatThrownBy(() -> CodeChangeMergedEvent.fromGitHub(null, "org-1", "integration-1", RECEIVED_AT))
+        assertThatThrownBy(() -> PullRequestMergedEvent.fromGitHub(null, "org-1", "integration-1", RECEIVED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("Merged pull request is required");
     }
 
     @Test
     void roundTripsExistingCorrelationAlongsideOptionalActorData() {
-        var event = CodeChangeMergedEvent.fromGitHub(
+        var event = PullRequestMergedEvent.fromGitHub(
                 merge("delivery-1", null, null, MERGED_AT), "org-1", "integration-1", RECEIVED_AT);
-        var correlated = new CodeChangeMergedEvent(event.eventId(), event.eventType(), event.eventVersion(),
+        var correlated = new PullRequestMergedEvent(event.eventId(), event.eventType(), event.eventVersion(),
                 event.occurredAt(), event.receivedAt(),
                 event.organizationId(), event.source(), event.actor(),
-                new CodeChangeMergedEvent.Correlation("trace-1", "change-1"), event.payload());
+                new PullRequestMergedEvent.Correlation("trace-1", "change-1"), event.payload());
         var mapper = JsonMapper.builder().build();
 
-        var decoded = mapper.readValue(mapper.writeValueAsBytes(correlated), CodeChangeMergedEvent.class);
+        var decoded = mapper.readValue(mapper.writeValueAsBytes(correlated), PullRequestMergedEvent.class);
 
         assertThat(decoded).isEqualTo(correlated);
     }
@@ -103,7 +103,7 @@ class CodeChangeMergedEventTests {
     @ParameterizedTest
     @ValueSource(strings = {"eventType", "eventVersion"})
     void rejectsUnsupportedWireTypesAndVersions(String field) {
-        var event = CodeChangeMergedEvent.fromGitHub(
+        var event = PullRequestMergedEvent.fromGitHub(
                 merge("delivery-1", "actor", "Title", MERGED_AT), "org-1", "integration-1", RECEIVED_AT);
         var mapper = JsonMapper.builder().build();
         var json = (ObjectNode) mapper.readTree(mapper.writeValueAsBytes(event));
@@ -113,7 +113,7 @@ class CodeChangeMergedEventTests {
             json.put(field, 2);
         }
 
-        assertThatThrownBy(() -> mapper.readValue(mapper.writeValueAsBytes(json), CodeChangeMergedEvent.class))
+        assertThatThrownBy(() -> mapper.readValue(mapper.writeValueAsBytes(json), PullRequestMergedEvent.class))
                 .isInstanceOf(JacksonException.class)
                 .hasRootCauseInstanceOf(IllegalArgumentException.class);
     }

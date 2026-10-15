@@ -3,9 +3,10 @@ spring:
     name: change-service
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/changeguard_change}
+    # Share the PostgreSQL database while keeping change-service objects in their own schema.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/changeguard?currentSchema=change}
     username: ${DB_USERNAME:changeguard}
-    password: ${DB_PASSWORD:changeguard}
+    password: ${DB_PASSWORD:changeguard-local}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}
@@ -17,6 +18,7 @@ spring:
       ddl-auto: validate
     properties:
       hibernate:
+        default_schema: change
         format_sql: true
         jdbc:
           time_zone: UTC
@@ -26,6 +28,8 @@ spring:
     # Running comment-only migrations would reserve their versions prematurely.
     enabled: ${FLYWAY_ENABLED:false}
     locations: classpath:db/migration
+    default-schema: change
+    schemas: change
     baseline-on-migrate: false
     validate-on-migrate: true
     clean-disabled: true
@@ -97,4 +101,5 @@ logging:
 changeguard:
   kafka:
     topics:
-      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events}
+      # This is the platform's versioned Avro topic; listeners remain disabled until implemented.
+      code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events.v1}

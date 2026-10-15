@@ -1,0 +1,24 @@
+{
+  "type": "record",
+  "name": "EventCorrelation",
+  "namespace": "com.changeguard.events.common",
+  "doc": "Optional tracing and downstream change correlation, never invented at intake.",
+  "fields": [
+    {
+      "name": "traceId",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "changeId",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}

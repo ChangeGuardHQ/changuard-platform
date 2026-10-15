@@ -8,6 +8,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
@@ -39,7 +40,8 @@ public class SecurityConfig {
 
         return http
                 // Webhook authenticity must be checked with X-Hub-Signature-256 before processing.
-                .csrf(csrf -> csrf.ignoringRequestMatchers(githubWebhook))
+                .csrf(csrf -> csrf.csrfTokenRepository(new CookieCsrfTokenRepository())
+                        .ignoringRequestMatchers(githubWebhook))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

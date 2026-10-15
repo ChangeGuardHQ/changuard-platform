@@ -17,14 +17,16 @@ curl --fail http://localhost:8082/actuator/health/liveness
 ```
 
 Compose also starts the service's PostgreSQL database and Kafka broker, waits
-for their health checks, and retains database data in `change_postgres_data`.
+for their health checks, and retains database data in `postgres_data`. The
+PostgreSQL database is shared with the connector; Change Service uses the
+`change` schema, while connector migrations own the `connector` schema.
 The application runs as a non-root user with a read-only root filesystem and
 writable temporary storage. Stop the stack with `docker compose down`.
 
 Compose sets the development HTTP Basic credentials to `changeguard` /
 `change-me`. Override them with `CHANGE_SERVICE_USER` and
-`CHANGE_SERVICE_PASSWORD`. Database credentials use `CHANGE_DB_USERNAME` and
-`CHANGE_DB_PASSWORD`; their development defaults are both `changeguard`.
+`CHANGE_SERVICE_PASSWORD`. Compose database credentials use `POSTGRES_USER`
+and `POSTGRES_PASSWORD`, defaulting to `changeguard` / `changeguard-local`.
 
 ## Run the application locally
 
@@ -51,17 +53,17 @@ Defaults are in [application.yml](src/main/resources/application.yml).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SERVER_PORT` | `8082` | Application HTTP port. |
-| `DB_URL` | `jdbc:postgresql://localhost:5432/changeguard_change` | JDBC connection URL. |
+| `DB_URL` | `jdbc:postgresql://localhost:5432/changeguard?currentSchema=change` | JDBC connection URL. |
 | `DB_USERNAME` | `changeguard` | Database login. |
-| `DB_PASSWORD` | `changeguard` | Database password. |
+| `DB_PASSWORD` | `changeguard-local` | Database password. |
 | `DB_POOL_SIZE` | `10` | Maximum JDBC pool size. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker addresses. |
 | `KAFKA_CONSUMER_GROUP` | `change-service-group` | Consumer group. |
-| `CODE_EVENTS_TOPIC` | `changeguard.code-events` | Topic for future business listeners. |
+| `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Topic for future business listeners. |
 | `KAFKA_LISTENER_AUTO_STARTUP` | `false` | Enable only after business listeners are implemented. |
 | `FLYWAY_ENABLED` | `false` | Enable after the domain migration files contain real DDL. |
 
-Compose host ports can be changed with `CHANGE_SERVICE_PORT`, `CHANGE_DB_PORT`,
+Compose host ports can be changed with `CHANGE_SERVICE_PORT`, `POSTGRES_PORT`,
 and `KAFKA_PORT`. When running Maven directly, update the JDBC URL or broker
 addresses to match any changed dependency ports. Compose uses internal
 container addresses independently of host ports.
@@ -86,11 +88,15 @@ container addresses independently of host ports.
   but disabled by default because the two domain migrations are still
   placeholders. Enabling them as-is would record empty migrations and reserve
   their versions. Replace them with real schema definitions before enabling
-  Flyway.
+  Flyway. Flyway and Hibernate are scoped to `change` so their metadata and
+  domain tables remain separate from the connector schema.
 
 The Kafka configuration uses Spring Kafka's
 [Jackson JSON support](https://docs.spring.io/spring-kafka/reference/kafka/serdes.html)
 and [container-stopping error handler](https://docs.spring.io/spring-kafka/docs/4.0.x/api/org/springframework/kafka/listener/CommonContainerStoppingErrorHandler.html).
+
+The service inherits shared dependency and security patch versions from
+[the backend reactor](../../pom.xml), and is included in its module list.
 
 ## Verify
 

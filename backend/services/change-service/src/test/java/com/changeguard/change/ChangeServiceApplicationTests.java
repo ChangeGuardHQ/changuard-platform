@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -37,7 +38,11 @@ class ChangeServiceApplicationTests {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17.11-alpine3.24");
+    // Use the same schema and configurable hardened test image as the integrated runtime.
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse(
+            System.getProperty("changeguard.test.postgres-image",
+                    "mirror.gcr.io/library/postgres@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"))
+            .asCompatibleSubstituteFor("postgres")).withUrlParam("currentSchema", "change");
 
     @Autowired
     private MockMvc mockMvc;

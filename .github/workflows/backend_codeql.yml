@@ -12,7 +12,6 @@ jobs:
     name: Backend CodeQL analysis
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Match the caller's grants; security-events: write allows findings to be uploaded.
     permissions:
       contents: read
       actions: read
@@ -36,7 +35,6 @@ jobs:
           cache-dependency-path: backend/**/pom.xml
 
       - name: Initialize CodeQL
-        # Initialize extraction before building the Java sources for analysis.
         uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: java-kotlin
@@ -45,11 +43,8 @@ jobs:
           queries: security-extended
 
       - name: Build for CodeQL
-        # Extract both standalone services; test execution belongs to backend_verify.yml.
-        working-directory: backend
-        run: |
-          sh services/connector-service/mvnw -f services/connector-service/pom.xml --batch-mode --no-transfer-progress -DskipTests clean package
-          sh services/change-service/mvnw -f services/change-service/pom.xml --batch-mode --no-transfer-progress -DskipTests clean package
+        # Extract both services and their shared dependencies from the same reactor.
+        run: sh ./mvnw -f ../../pom.xml --batch-mode --no-transfer-progress -DskipTests clean package
 
       - name: Analyze Java sources
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
@@ -58,7 +53,6 @@ jobs:
           output: ${{ github.workspace }}/codeql-results
 
       - name: Upload CodeQL report
-        # Retain SARIF for inspection even if publishing to code scanning fails.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -4,6 +4,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -26,6 +27,7 @@ public class KafkaProducerConfig {
      * @return a configured producer factory for String keys and Object payloads
      */
     @Bean
+    @DependsOn("registeredCodeEventContracts")
     public ProducerFactory<String, Object> producerFactory(KafkaProperties properties) {
         return new DefaultKafkaProducerFactory<>(properties.buildProducerProperties());
     }

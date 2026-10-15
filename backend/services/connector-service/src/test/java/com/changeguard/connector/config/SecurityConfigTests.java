@@ -30,6 +30,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Regression tests for the connector security configuration.
+ *
+ * <p>
+ * These tests document the intended behavior for public health endpoints,
+ * basic-auth protected APIs, CSRF enforcement for state-changing requests, and
+ * the special handling of GitHub webhook POST requests.
+ */
 @WebMvcTest(SecurityConfigTests.TestController.class)
 @Import({SecurityConfig.class, SecurityConfigTests.TestController.class, SecurityConfigTests.TestUsers.class})
 class SecurityConfigTests {
@@ -53,7 +61,7 @@ class SecurityConfigTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"/actuator/info", "/actuator/prometheus", "/api/v1/integrations/github",
-            "/api/v1/integrations/github/webhook", "/api/v1/private", "/login"})
+        "/api/v1/integrations/github/webhook", "/api/v1/private", "/login"})
     void otherGetRequestsRequireAuthentication(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isUnauthorized())
@@ -89,9 +97,9 @@ class SecurityConfigTests {
     @Test
     void errorDispatchIsAllowed() throws Exception {
         mockMvc.perform(get("/error").with(request -> {
-                    request.setDispatcherType(DispatcherType.ERROR);
-                    return request;
-                }))
+            request.setDispatcherType(DispatcherType.ERROR);
+            return request;
+        }))
                 .andExpect(status().isOk());
     }
 
@@ -115,7 +123,7 @@ class SecurityConfigTests {
         }
 
         @GetMapping({"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness",
-                "/api/v1/private", "/error"})
+            "/api/v1/private", "/error"})
         String read() {
             return "ok";
         }

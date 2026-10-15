@@ -12,12 +12,15 @@ jobs:
     name: Verify ${{ matrix.service }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # Preserve main's mirrored cleanup helper for Testcontainers integration tests.
+      TESTCONTAINERS_RYUK_CONTAINER_IMAGE: mirror.gcr.io/testcontainers/ryuk@sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0
     # Let both services finish so one failure does not hide the other's reports.
     strategy:
       fail-fast: false
       matrix:
         service: [connector-service, change-service]
-    # Each service owns a standalone POM and Maven wrapper.
+    # Select each service through the reactor so shared dependencies build with it.
     defaults:
       run:
         working-directory: backend/services/${{ matrix.service }}
@@ -35,9 +38,19 @@ jobs:
           cache: maven
           cache-dependency-path: backend/**/pom.xml
 
+      - name: Build PostgreSQL test image
+        run: docker build --tag changuard-postgres:18.6-security.1 ../../docker/postgres
+
+      - name: Build connector integration images
+        # Only connector tests need the real Kafka/Registry wire protocol infrastructure.
+        if: matrix.service == 'connector-service'
+        run: |
+          docker build --tag changuard-kafka:4.2.2-security.2 ../../docker/kafka
+          docker build --file ../../docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.2 ../..
+
       - name: Verify backend
         # Verify tests and packaging with development-only defaults disabled.
-        run: sh ./mvnw --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false verify
+        run: sh ./mvnw -f ../../pom.xml -pl services/${{ matrix.service }} -am --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
 
       - name: Upload unit and integration test reports
         # Preserve available results after failures; matrix services need unique names.
@@ -46,7 +59,7 @@ jobs:
         with:
           name: backend-${{ matrix.service }}-test-reports
           path: |
-            backend/services/${{ matrix.service }}/target/surefire-reports/
-            backend/services/${{ matrix.service }}/target/failsafe-reports/
+            backend/**/target/surefire-reports/
+            backend/**/target/failsafe-reports/
           if-no-files-found: ignore
           retention-days: 7

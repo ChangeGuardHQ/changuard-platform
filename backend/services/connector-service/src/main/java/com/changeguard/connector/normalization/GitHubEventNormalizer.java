@@ -62,6 +62,19 @@ public class GitHubEventNormalizer {
      * or a merged pull request lacks required correlation fields
      */
     public Optional<GitHubMergedPullRequest> normalize(String eventType, String deliveryId, byte[] payload) {
+        return normalize(eventType, deliveryId, payload, false).map(GitHubMergedDelivery::pullRequest);
+    }
+
+    /**
+     * Normalizes a verified delivery and requires its GitHub App installation ID.
+     * The processor resolves internal organization ownership from this ID in storage.
+     */
+    public Optional<GitHubMergedDelivery> normalizeDelivery(String eventType, String deliveryId, byte[] payload) {
+        return normalize(eventType, deliveryId, payload, true);
+    }
+
+    private Optional<GitHubMergedDelivery> normalize(String eventType, String deliveryId,
+            byte[] payload, boolean requireInstallation) {
         Assert.hasText(eventType, "GitHub event type is required");
         Assert.hasText(deliveryId, "GitHub delivery ID is required");
         if (!"pull_request".equals(eventType)) {
@@ -101,7 +114,14 @@ public class GitHubEventNormalizer {
         requireText(pullRequest.base().ref(), "pull_request.base.ref");
         Instant mergedAt = mergeTimestamp(pullRequest.mergedAt());
 
-        return Optional.of(new GitHubMergedPullRequest(
+        Long installationId = webhook.installation() == null ? null : webhook.installation().id();
+        if (requireInstallation) {
+            require(installationId != null && installationId > 0, "installation.id");
+            require(repository.owner() != null && repository.owner().id() != null && repository.owner().id() > 0,
+                    "repository.owner.id");
+        }
+        return Optional.of(new GitHubMergedDelivery(installationId,
+                repository.owner() == null ? null : repository.owner().id(), new GitHubMergedPullRequest(
                 deliveryId,
                 repository.id().toString(),
                 repository.fullName(),
@@ -111,7 +131,10 @@ public class GitHubEventNormalizer {
                 pullRequest.head().ref(),
                 pullRequest.base().ref(),
                 actorLogin(webhook),
-                mergedAt));
+                mergedAt)));
+    }
+
+    public record GitHubMergedDelivery(Long installationId, Long repositoryOwnerId, GitHubMergedPullRequest pullRequest) {
     }
 
     private static Instant mergeTimestamp(String value) {

@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "EventActor",
+  "namespace": "com.changeguard.events.common",
+  "doc": "Provider actor identity. UNKNOWN preserves an identity without guessing its classification.",
+  "fields": [
+    {
+      "name": "type",
+      "type": {
+        "type": "enum",
+        "name": "ActorType",
+        "symbols": [
+          "HUMAN",
+          "BOT",
+          "AI",
+          "UNKNOWN"
+        ],
+        "default": "UNKNOWN"
+      }
+    },
+    {
+      "name": "id",
+      "type": "string"
+    }
+  ]
+}

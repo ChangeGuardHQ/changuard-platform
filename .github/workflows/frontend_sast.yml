@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   sast:
+      # Apply pinned Semgrep rules to frontend JavaScript and TypeScript sources.
     name: Frontend source security scan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -19,7 +20,6 @@ jobs:
           persist-credentials: false
 
       - name: Check out pinned Semgrep security rules
-        # A fixed rules commit keeps findings reproducible across workflow reruns.
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: semgrep/semgrep-rules
@@ -33,11 +33,10 @@ jobs:
           persist-credentials: false
 
       - name: Scan JavaScript, TypeScript, and React sources
-        # Pin the scanner as well as its rules; disable network access and telemetry below.
         env:
-          SEMGREP_IMAGE: semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
+          # Use the verified public cache to avoid Docker Hub's anonymous pull limit.
+          SEMGREP_IMAGE: mirror.gcr.io/semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
         run: |
-          # Store reports outside the read-only checkout so they can be uploaded afterward.
           mkdir -p "$RUNNER_TEMP/frontend-sast"
           docker run --rm --network none \
             --volume "$GITHUB_WORKSPACE:/src:ro" \
@@ -56,7 +55,6 @@ jobs:
               --sarif-output=/reports/semgrep.sarif frontend
 
       - name: Upload source security reports
-        # Upload reports even if the scan fails or reports findings.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

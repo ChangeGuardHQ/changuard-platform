@@ -1,11 +1,11 @@
-# syntax=docker/dockerfile:1.27.1
-FROM node:24.21.0-alpine3.24 AS dependencies
+# syntax=mirror.gcr.io/docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM mirror.gcr.io/library/node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS dependencies
 
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:24.21.0-alpine3.24 AS runtime
+FROM mirror.gcr.io/library/node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
 
 # Vite runs directly; package managers are only needed in the dependency stage.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \

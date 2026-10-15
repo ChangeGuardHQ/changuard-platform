@@ -12,6 +12,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
+/**
+ * Validates GitHub webhook payload signatures by recomputing the HMAC-SHA256
+ * digest of the raw request body and comparing it against the
+ * X-Hub-Signature-256 header value.
+ */
 @Component
 public class GitHubSignatureValidator {
 

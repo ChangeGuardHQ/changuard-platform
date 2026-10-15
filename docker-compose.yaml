@@ -1,4 +1,10 @@
+# ChangeGuard platform local development stack.
+# Starts the frontend, both services, Kafka, PostgreSQL, and Schema Registry for local development.
+# The frontend is served locally on port 5173 by default, and the connector service exposes its API on port 8081.
+
 services:
+  # Frontend application served as a Vite dev server.
+  # Mounts the local frontend source directory so edits are reflected immediately.
   frontend:
     image: changuard-frontend:0.0.0
     build:
@@ -12,25 +18,41 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-
     networks:
       - changuard_network
 
+  # Connector receives integration events and owns the connector database schema.
+  # Database migrations run at startup after PostgreSQL and Kafka become healthy.
   connector-service:
     image: ${CONNECTOR_SERVICE_IMAGE:-changuard-connector-service:0.0.1}
     build:
-      context: ./backend/services/connector-service
-      dockerfile: Dockerfile
+      context: ./backend
+      dockerfile: services/connector-service/Dockerfile
     init: true
     ports:
       - "${CONNECTOR_PORT:-8081}:8081"
     environment:
       SERVER_PORT: "8081"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events}
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events.v1}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-change-me}
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-true}
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
+      OUTBOX_ACKNOWLEDGEMENT_TIMEOUT: ${OUTBOX_ACKNOWLEDGEMENT_TIMEOUT:-10s}
+      OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-60s}
+      OUTBOX_RETRY_INITIAL_DELAY: ${OUTBOX_RETRY_INITIAL_DELAY:-1s}
+      OUTBOX_RETRY_MAX_DELAY: ${OUTBOX_RETRY_MAX_DELAY:-30s}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-changeguard}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-changeguard}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
     depends_on:
       kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -42,21 +64,22 @@ services:
     networks:
       - changuard_network
 
+  # Change Service shares PostgreSQL through its own schema; business listeners stay disabled.
   change-service:
     image: ${CHANGE_SERVICE_IMAGE:-changuard-change-service:0.0.1}
     build:
-      context: ./backend/services/change-service
-      dockerfile: Dockerfile
+      context: ./backend
+      dockerfile: services/change-service/Dockerfile
     init: true
     ports:
       - "${CHANGE_SERVICE_PORT:-8082}:8082"
     environment:
       SERVER_PORT: "8082"
-      DB_URL: jdbc:postgresql://postgres:5432/changeguard_change
-      DB_USERNAME: ${CHANGE_DB_USERNAME:-changeguard}
-      DB_PASSWORD: ${CHANGE_DB_PASSWORD:-changeguard}
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-changeguard}?currentSchema=change
+      DB_USERNAME: ${POSTGRES_USER:-changeguard}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events}
+      CODE_EVENTS_TOPIC: ${CODE_EVENTS_TOPIC:-changeguard.code-events.v1}
       KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-change-service-group}
       SPRING_SECURITY_USER_NAME: ${CHANGE_SERVICE_USER:-changeguard}
       SPRING_SECURITY_USER_PASSWORD: ${CHANGE_SERVICE_PASSWORD:-change-me}
@@ -75,27 +98,34 @@ services:
     networks:
       - changuard_network
 
+  # PostgreSQL 18 stores version-specific data below /var/lib/postgresql.
   postgres:
-    image: postgres:17.11-alpine3.24
-    environment:
-      POSTGRES_DB: changeguard_change
-      POSTGRES_USER: ${CHANGE_DB_USERNAME:-changeguard}
-      POSTGRES_PASSWORD: ${CHANGE_DB_PASSWORD:-changeguard}
+    image: ${POSTGRES_IMAGE:-changuard-postgres:18.6-security.1}
+    build:
+      context: ./backend/docker/postgres
+      dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:${CHANGE_DB_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-changeguard}
+      POSTGRES_USER: ${POSTGRES_USER:-changeguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeguard-local}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
-      start_period: 10s
+      start_period: 15s
       retries: 10
     volumes:
-      - change_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
+    security_opt:
+      - no-new-privileges:true
     networks:
       - changuard_network
 
+  # Local Kafka broker used for event-driven communication between services.
+  # The container exposes a localhost listener for local clients and an internal listener for service-to-service traffic.
   kafka:
-    # Keep the local broker on the same dependency patches scanned by backend CI.
     image: ${KAFKA_IMAGE:-changuard-kafka:4.2.2-security.2}
     build:
       context: ./backend/docker/kafka
@@ -128,10 +158,45 @@ services:
     networks:
       - changuard_network
 
+  # Schema history is durable in Kafka's compacted _schemas topic, not local files.
+  schema-registry:
+    image: ${SCHEMA_REGISTRY_IMAGE:-changuard-schema-registry:8.3.2-security.2}
+    build:
+      context: ./backend
+      dockerfile: docker/schema-registry/Dockerfile
+    ports:
+      # Reserve 8082 for Change Service; internal Registry clients still use port 8081.
+      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8083}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: "1"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/subjects"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks:
+      - changuard_network
+
+# Named volumes retain frontend dependencies and Kafka/PostgreSQL data.
 volumes:
   frontend_node_modules:
   kafka_data:
-  change_postgres_data:
+  postgres_data:
 
+# Shared internal Docker network for local service discovery.
 networks:
   changuard_network:
