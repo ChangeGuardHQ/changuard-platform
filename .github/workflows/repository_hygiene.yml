@@ -1,0 +1,36 @@
+name: Repository hygiene
+
+# Run for every change so misplaced files outside frontend/backend paths are checked too.
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tracked-files:
+    name: Check tracked files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Reject tracked files covered by ignore rules
+        # git add --force can bypass .gitignore; check the index as well as the rules.
+        run: |
+          tracked_ignored="$(git ls-files --cached --ignored --exclude-standard)"
+          if [ -n "$tracked_ignored" ]; then
+            printf '%s\n' 'Remove these generated or local files from Git tracking:'
+            # Filenames are untrusted input; prevent them from becoming workflow log commands.
+            printf '%s\n' "$tracked_ignored" | sed 's/::/: :/g'
+            exit 1
+          fi

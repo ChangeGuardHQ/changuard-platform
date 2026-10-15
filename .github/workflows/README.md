@@ -1,5 +1,9 @@
 # CI workflows
 
+[Repository hygiene](repository_hygiene.yml) runs for every push and pull request.
+It rejects tracked files covered by ignore rules, including generated output and
+local credential files. Versioned templates such as `.env.example` remain allowed.
+
 [Backend CI](backend_ci.yml) and [Frontend CI](frontend_ci.yml) are the entry
 points. They own push and pull-request path filters, weekly schedules, manual
 dispatch, concurrency, and the CodeQL opt-in condition. Each entry point calls
