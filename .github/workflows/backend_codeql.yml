@@ -17,9 +17,6 @@ jobs:
       actions: read
       packages: read
       security-events: write
-    defaults:
-      run:
-        working-directory: backend/services/connector-service
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -44,7 +41,8 @@ jobs:
 
       - name: Build for CodeQL
         # Extract both services and their shared dependencies from the same reactor.
-        run: sh ./mvnw -f ../../pom.xml --batch-mode --no-transfer-progress -DskipTests clean package
+        # Retry repository failures while retaining a clean compilation for CodeQL on each attempt.
+        run: bash .github/scripts/maven_with_retry.sh sh backend/services/connector-service/mvnw -f backend/pom.xml -DskipTests clean package
 
       - name: Analyze Java sources
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4

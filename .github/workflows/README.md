@@ -23,7 +23,9 @@ container checks start both services with PostgreSQL, Kafka, and Schema Registry
 verification runs lint, TypeScript checks, Vitest, and the production build.
 
 Backend dependency scans first install the reactor through
-[`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The helper retries only
+[`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The CodeQL manual build
+uses the same helper for `clean package`, recompiling the full reactor after
+CodeQL initialization on each attempt. The helper retries only
 dependency/plugin resolution errors, with at most three attempts and 10/20-second
 delays. Each attempt uses Maven's `--update-snapshots` to recheck cached missing
 releases and `--errors` to retain repository diagnostics. Compilation and test

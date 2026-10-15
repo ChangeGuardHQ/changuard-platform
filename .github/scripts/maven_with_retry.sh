@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Maven preparation with bounded retries for dependency/plugin resolution failures.
+# Run Maven builds with bounded retries for dependency/plugin resolution failures.
 set -euo pipefail
 
 if (( $# == 0 )); then

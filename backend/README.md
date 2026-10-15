@@ -306,8 +306,10 @@ rate limited. Maven Central is queried before Confluent for ordinary dependencie
 The preparation command retries dependency/plugin resolution failures at most
 three times, with 10/20-second delays and a forced recheck of cached missing
 releases. Full Maven errors remain visible; compilation errors and exhausted
-resolution retries fail the job. See the [CI helper](../.github/scripts/maven_with_retry.sh).
-The HIGH/CRITICAL gate
+resolution retries fail the job. CodeQL's manual `clean package` build uses the
+same retry helper so connection resets do not immediately abort extraction;
+each attempt rebuilds the full reactor after CodeQL initialization. See the
+[CI helper](../.github/scripts/maven_with_retry.sh). The HIGH/CRITICAL gate
 continues to include unfixed findings.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly

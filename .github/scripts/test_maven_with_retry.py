@@ -67,6 +67,18 @@ sys.exit(result[0])
         self.assertEqual(len(calls), 3)
         self.assertEqual(delays, ["10", "20"])
 
+    def test_codeql_connection_reset_is_retried(self):
+        # Preserve the descriptor/transport combination from the failed CodeQL build.
+        message = (
+            "[ERROR] Failed to read artifact descriptor for org.apache.kafka:kafka-metadata:jar:4.1.2\n"
+            "[ERROR] \tCaused by: Could not transfer artifact from/to central: Connection reset"
+        )
+        result, calls, delays = self.run_maven([[1, message], [0, "[INFO] BUILD SUCCESS"]])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(delays, ["10"])
+        self.assertIn("Connection reset", result.stdout)
+
     def test_build_failures_are_not_retried(self):
         for message in ("[ERROR] COMPILATION ERROR", "[ERROR] There are test failures."):
             with self.subTest(message=message):
