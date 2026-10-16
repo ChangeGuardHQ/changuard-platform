@@ -18,8 +18,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify security-report summaries
-        # Diagnostics must preserve findings without exposing secrets or injecting log commands.
+      - name: Verify CI helper scripts
+        # Check safe diagnostics and bounded resolution retries before running scanners.
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Set up Java for dependency resolution
@@ -28,11 +28,15 @@ jobs:
           distribution: temurin
           java-version: "21.0.12+101.0.LTS"
           cache: maven
-          cache-dependency-path: backend/**/pom.xml
+          # Share caches only when module dependencies and Maven wrapper settings match.
+          cache-dependency-path: |
+            backend/**/pom.xml
+            backend/**/.mvn/wrapper/maven-wrapper.properties
 
       - name: Resolve backend dependencies before scanning
         # Populate parent/BOM and reactor artifacts so Trivy can resolve the full graph locally.
-        run: sh backend/services/connector-service/mvnw -f backend/pom.xml --batch-mode --no-transfer-progress -DskipTests install
+        # Retry resolution failures at most three times; preserve compiler failures and final exit codes.
+        run: bash .github/scripts/maven_with_retry.sh sh backend/services/connector-service/mvnw -f backend/pom.xml -DskipTests install
 
       - name: Scan backend dependencies, secrets, and Docker configuration
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

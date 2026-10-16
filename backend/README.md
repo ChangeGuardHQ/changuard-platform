@@ -89,7 +89,7 @@ flowchart TD
 ## Local development
 
 Install a Java 21 JDK and make it available through `JAVA_HOME` or `PATH`. The
-service includes a Maven wrapper configured for Maven 3.9.16; its first run
+service includes a Maven wrapper configured for Maven 3.10.0; its first run
 downloads Maven and any uncached dependencies.
 
 Start the local infrastructure from the repository root before running the connector:
@@ -302,8 +302,20 @@ images address them. The source-security job now sets up Java, restores Maven's
 dependency cache, and runs the backend reactor's `install` goal with tests skipped
 before scanning. This resolves parent/BOM and local module artifacts before
 Trivy reads the POMs, avoiding incomplete scans when remote Maven requests are
-rate limited. Dependency resolution errors fail the job. The HIGH/CRITICAL gate
+rate limited. Maven Central is queried before Confluent for ordinary dependencies.
+The preparation command retries dependency/plugin resolution failures at most
+three times, with 10/20-second delays and a forced recheck of cached missing
+releases. Full Maven errors remain visible; compilation errors and exhausted
+resolution retries fail the job. CodeQL's manual `clean package` build uses the
+same retry helper so connection resets do not immediately abort extraction;
+each attempt rebuilds the full reactor after CodeQL initialization. See the
+[CI helper](../.github/scripts/maven_with_retry.sh). The HIGH/CRITICAL gate
 continues to include unfixed findings.
+
+Both service verification jobs use the helper with tests enabled. Both wrappers
+pin Maven 3.10.0, and the shared CI cache key includes the wrapper properties as
+well as module POMs. This avoids mixing Maven 3.9/3.10 repository-origin metadata,
+which otherwise forces remote checks for dependencies already present locally.
 
 Backend changes, workflow changes, and Compose changes trigger CI. A weekly
 schedule also reruns checks as vulnerability databases change. The workflows

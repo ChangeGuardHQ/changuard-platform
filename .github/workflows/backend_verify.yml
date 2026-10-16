@@ -36,7 +36,10 @@ jobs:
           distribution: temurin
           java-version: "21.0.12+101.0.LTS" # Temurin 21.0.12.1+1 (Adoptium SemVer)
           cache: maven
-          cache-dependency-path: backend/**/pom.xml
+          # Wrapper changes must invalidate caches written with different Resolver metadata.
+          cache-dependency-path: |
+            backend/**/pom.xml
+            backend/**/.mvn/wrapper/maven-wrapper.properties
 
       - name: Build PostgreSQL test image
         run: docker build --tag changuard-postgres:18.6-security.1 ../../docker/postgres
@@ -50,7 +53,8 @@ jobs:
 
       - name: Verify backend
         # Verify tests and packaging with development-only defaults disabled.
-        run: sh ./mvnw -f ../../pom.xml -pl services/${{ matrix.service }} -am --batch-mode --no-transfer-progress -Dspring.devtools.add-properties=false -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
+        # Retry dependency downloads for both services; test failures still fail immediately.
+        run: bash ../../../.github/scripts/maven_with_retry.sh sh ./mvnw -f ../../pom.xml -pl services/${{ matrix.service }} -am -Dspring.devtools.add-properties=false -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
 
       - name: Upload unit and integration test reports
         # Preserve available results after failures; matrix services need unique names.

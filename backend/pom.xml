@@ -33,6 +33,12 @@
         <httpcore5.version>5.4.3</httpcore5.version>
     </properties>
     <repositories>
+        <!-- Resolve common dependencies from Central before querying the vendor repository. -->
+        <repository>
+            <id>central</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
         <repository>
             <id>confluent</id>
             <url>https://packages.confluent.io/maven/</url>

@@ -22,6 +22,23 @@ building each through the Maven reactor with its shared dependencies. Backend
 container checks start both services with PostgreSQL, Kafka, and Schema Registry. Frontend
 verification runs lint, TypeScript checks, Vitest, and the production build.
 
+Backend dependency scans first install the reactor through
+[`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The CodeQL manual build
+uses the same helper for `clean package`, recompiling the full reactor after
+CodeQL initialization on each attempt. Both service verification jobs also use
+the helper for `verify`, with tests enabled. The helper retries only
+dependency/plugin resolution errors, with at most three attempts and 10/20-second
+delays. Each attempt uses Maven's `--update-snapshots` to recheck cached missing
+releases and `--errors` to retain repository diagnostics. Compilation and test
+failures stop immediately, and exhausted retries preserve Maven's failure status.
+The backend parent lists Maven Central before Confluent for ordinary dependencies;
+Maven plugins continue to use the default Central plugin repository.
+
+Both service wrappers pin Maven 3.10.0. Maven 3.9 and 3.10 record cached repository
+identities differently, so mixing them causes repeated remote checks. The Java
+setup steps include wrapper properties and module POMs in the cache key to avoid
+restoring a cache populated by an incompatible wrapper version.
+
 ## Editing workflows
 
 - Include concise inline comments explaining workflow intent, conditions,
