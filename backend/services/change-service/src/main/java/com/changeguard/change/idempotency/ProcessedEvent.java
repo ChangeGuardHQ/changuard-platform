@@ -1,6 +1,9 @@
 package com.changeguard.change.idempotency;
 
-public class ProcessedEvent {
+import java.time.Instant;
+import java.util.UUID;
 
-    // TODO: Define the persisted processed-event marker and JPA mapping.
+/** Durable receipt committed in the same transaction as its change projection. */
+public record ProcessedEvent(String organizationId, String eventId, String fingerprint,
+        UUID changeId, Instant processedAt) {
 }

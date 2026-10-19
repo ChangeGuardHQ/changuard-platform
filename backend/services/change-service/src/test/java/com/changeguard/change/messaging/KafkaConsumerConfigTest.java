@@ -51,7 +51,7 @@ class KafkaConsumerConfigTest {
                     assertThat(container.getContainerProperties().getAckMode())
                             .isEqualTo(ContainerProperties.AckMode.RECORD);
                     assertThat(container.getCommonErrorHandler()).isSameAs(context.getBean(CommonErrorHandler.class));
-                    assertThat(context.getEnvironment().getProperty("spring.flyway.enabled", Boolean.class)).isFalse();
+                    assertThat(context.getEnvironment().getProperty("spring.flyway.enabled", Boolean.class)).isTrue();
                 });
     }
 

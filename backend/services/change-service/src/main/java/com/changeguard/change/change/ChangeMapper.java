@@ -1,6 +1,11 @@
 package com.changeguard.change.change;
 
-public class ChangeMapper {
+import org.springframework.stereotype.Component;
 
-    // TODO: Map events, change records, and API responses.
+/** Owns conversion into the immutable, database-owned change projection. */
+@Component
+public class ChangeMapper {
+    public ChangeRecord newRecord(MergedChange merge) {
+        return new ChangeRecord(merge);
+    }
 }

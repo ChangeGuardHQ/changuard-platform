@@ -3,8 +3,9 @@
 Java 21 and Spring Boot 4 infrastructure for the ChangeGuard change lifecycle
 service. The service starts with PostgreSQL, JPA, Kafka transport, HTTP Basic
 authentication, Actuator health probes, and Prometheus metrics. Business
-endpoints, event contracts, entities, idempotency operations, and event handlers
-remain scaffolds.
+endpoints, idempotency operations, and event handlers are being delivered in
+[separate business-logic steps](BUSINESS_LOGIC.md). Merge records and receipt
+constraints now use production Flyway migrations.
 
 ## Run with Docker Compose
 
@@ -61,7 +62,7 @@ Defaults are in [application.yml](src/main/resources/application.yml).
 | `KAFKA_CONSUMER_GROUP` | `change-service-group` | Consumer group. |
 | `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Topic for future business listeners. |
 | `KAFKA_LISTENER_AUTO_STARTUP` | `false` | Enable only after business listeners are implemented. |
-| `FLYWAY_ENABLED` | `false` | Enable after the domain migration files contain real DDL. |
+| `FLYWAY_ENABLED` | `true` | Apply the reviewed domain migrations before JPA validation. |
 
 Compose host ports can be changed with `CHANGE_SERVICE_PORT`, `POSTGRES_PORT`,
 and `KAFKA_PORT`. When running Maven directly, update the JDBC URL or broker
@@ -84,12 +85,11 @@ container addresses independently of host ports.
   replayed after restart. Retry and dead-letter policies belong to the future
   business consumer. No business listener is registered, so the application
   currently consumes no events. Readiness does not test broker connectivity.
-- Hibernate validates mappings and does not generate tables. Flyway is wired
-  but disabled by default because the two domain migrations are still
-  placeholders. Enabling them as-is would record empty migrations and reserve
-  their versions. Replace them with real schema definitions before enabling
-  Flyway. Flyway and Hibernate are scoped to `change` so their metadata and
-  domain tables remain separate from the connector schema.
+- Hibernate validates mappings and does not generate tables. Flyway applies the
+  change-record and processed-event migrations in the `change` schema. Their
+  unique keys keep repeated provider facts independent of delivery count; the
+  receipt foreign key preserves organization ownership.
+
 
 The Kafka configuration uses Spring Kafka's
 [Jackson JSON support](https://docs.spring.io/spring-kafka/reference/kafka/serdes.html)
@@ -109,8 +109,8 @@ From this directory:
 Tests require a running Docker daemon. They start a disposable PostgreSQL
 container and an embedded Kafka broker; external database and broker instances
 are unnecessary. The first run downloads Maven dependencies and the PostgreSQL
-image. PostgreSQL startup tests use a test-only Flyway migration to verify JDBC,
-migrations, and JPA without reserving the domain migration versions.
+image. PostgreSQL startup tests apply the production Flyway migrations and verify JDBC,
+JPA, business-key uniqueness, and organization-scoped receipt constraints.
 
 Infrastructure tests cover authentication, CSRF protection, stateless requests,
 health probes, Prometheus output, broker/security property overrides, JSON

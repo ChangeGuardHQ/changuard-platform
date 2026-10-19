@@ -24,9 +24,8 @@ spring:
           time_zone: UTC
 
   flyway:
-    # Enable after the domain migration placeholders contain real DDL.
-    # Running comment-only migrations would reserve their versions prematurely.
-    enabled: ${FLYWAY_ENABLED:false}
+    # Apply the reviewed domain DDL before Hibernate validates mappings.
+    enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
     default-schema: change
     schemas: change

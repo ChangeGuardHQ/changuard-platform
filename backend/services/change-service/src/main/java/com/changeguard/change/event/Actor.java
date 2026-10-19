@@ -1,6 +1,12 @@
 package com.changeguard.change.event;
 
-public class Actor {
+import java.util.Objects;
+import org.springframework.util.Assert;
 
-    // TODO: Define the event actor identity and type.
+/** Optional attribution on the original merge fact. */
+public record Actor(ActorType type, String id) {
+    public Actor {
+        Objects.requireNonNull(type, "Actor type is required");
+        Assert.hasText(id, "Actor ID is required");
+    }
 }
