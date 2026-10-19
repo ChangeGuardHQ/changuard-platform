@@ -23,6 +23,14 @@ class ChangePersistenceTest {
     @Autowired ProcessedEventRepository receipts;
     @Autowired ChangeMapper mapper;
 
+    @org.springframework.beans.factory.annotation.Autowired org.springframework.jdbc.core.simple.JdbcClient jdbc;
+
+    @org.junit.jupiter.api.BeforeEach
+    void isolateRowsFromOtherTestsSharingTheSpringContext() {
+        // Application-service tests commit real transactions in this shared test database.
+        jdbc.sql("TRUNCATE change.processed_events, change.change_records").update();
+    }
+
     @Test
     void storesAProviderFactAndItsReceiptInsideTheOwningSchema() {
         var fact = merged("event-1", "org-one", "repo-1", 7);

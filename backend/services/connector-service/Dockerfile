@@ -18,6 +18,8 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 # Runtime stage: run the application in a minimal Alpine image.
 FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS runtime
+# Apply Alpine's CVE-2026-77214 fix while retaining the pinned Temurin runtime.
+RUN apk add --no-cache libexpat=2.9.0-r0
 
 WORKDIR /app
 # Create a dedicated non-root user for the service to improve container security.

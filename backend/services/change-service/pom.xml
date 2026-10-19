@@ -24,6 +24,16 @@
 
     <dependencies>
 
+        <!-- Consume the same generated Avro contract and Registry framing as the connector. -->
+        <dependency>
+            <groupId>com.changeguard</groupId>
+            <artifactId>event-contracts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-avro-serializer</artifactId>
+        </dependency>
+
         <!-- REST API -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -88,6 +98,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Exercise actual broker/Registry framing in addition to the embedded transport tests. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
             <scope>test</scope>
         </dependency>
 

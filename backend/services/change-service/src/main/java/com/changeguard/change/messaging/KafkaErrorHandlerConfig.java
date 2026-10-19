@@ -10,7 +10,7 @@ public class KafkaErrorHandlerConfig {
 
     /**
      * Stop on failure and retain the failed record's offset for replay.
-     * Retry and dead-letter policies will be defined with the business consumer.
+     * Repair invalid facts or the database, then restart; this release does not discard records into a DLT.
      */
     @Bean
     public CommonErrorHandler kafkaErrorHandler() {

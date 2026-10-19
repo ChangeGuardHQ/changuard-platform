@@ -20,3 +20,13 @@ focused tests, and an independently buildable commit.
 The change ID belongs to this service; optional upstream correlation never selects
 or overwrites it. Merge time is the provider occurrence time. The initial timeline
 contains one merge fact, rather than a separate entry for every delivery.
+
+All four steps are implemented on `feature/change-service-business-logic`.
+The final wire test registers the shared schemas, produces duplicate Avro merges,
+queries the timeline, rewinds the stopped consumer group to replay, and proves
+an invalid semantic version leaves its offset uncommitted.
+
+Final image validation also found `CVE-2026-77214` in the pinned JRE's native
+libexpat package. The runtime Dockerfiles explicitly install Alpine's fixed
+`2.9.0-r0` package, including the shared broker and Registry images used by CI.
+The HIGH/CRITICAL and secret gates remain enabled.

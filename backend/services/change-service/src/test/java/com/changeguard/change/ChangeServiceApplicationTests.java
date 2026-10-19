@@ -10,16 +10,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -62,7 +57,8 @@ class ChangeServiceApplicationTests {
         assertThat(new JdbcTemplate(dataSource).queryForObject(
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'change' "
                         + "AND table_name IN ('change_records', 'processed_events')", Integer.class)).isEqualTo(2);
-        assertThat(listenerRegistry.getListenerContainers()).isEmpty();
+        assertThat(listenerRegistry.getListenerContainers()).hasSize(1);
+        assertThat(listenerRegistry.getListenerContainer("code-change-events").isRunning()).isFalse();
     }
 
     @ParameterizedTest

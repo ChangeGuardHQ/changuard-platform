@@ -22,7 +22,10 @@ import org.springframework.kafka.test.utils.ContainerTestUtils;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
-import tools.jackson.databind.JsonNode;
+import com.changeguard.change.AvroFixtures;
+import com.changeguard.events.code.PullRequestMerged;
+import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         initializers = ConfigDataApplicationContextInitializer.class)
 @EmbeddedKafka(partitions = 1, topics = "infrastructure-transport",
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+@TestPropertySource(properties = "spring.kafka.consumer.properties.schema.registry.url=mock://change-transport-test")
 @DirtiesContext
 class KafkaTransportTest {
 
@@ -40,24 +44,25 @@ class KafkaTransportTest {
     private ConcurrentKafkaListenerContainerFactory<Object, Object> factory;
 
     @Test
-    void configuredTransportReadsHeaderlessJsonFromKafka() throws Exception {
-        var values = new LinkedBlockingQueue<JsonNode>();
+    void configuredTransportReadsSpecificAvroFromKafka() throws Exception {
+        var values = new LinkedBlockingQueue<PullRequestMerged>();
         var container = factory.createContainer("infrastructure-transport");
         container.getContainerProperties().setGroupId("infrastructure-transport-test");
-        container.setupMessageListener((MessageListener<Object, Object>) record -> values.add((JsonNode) record.value()));
+        container.setupMessageListener((MessageListener<Object, Object>) record -> values.add((PullRequestMerged) record.value()));
         try {
             container.start();
             ContainerTestUtils.waitForAssignment(container, 1);
-            try (var producer = new KafkaProducer<>(KafkaTestUtils.producerProps(broker),
-                    new StringSerializer(), new StringSerializer())) {
-                producer.send(new ProducerRecord<>("infrastructure-transport", "org-1", """
-                        {"eventId":"transport-1","payload":{"repositoryId":"repo-1"}}
-                        """)).get(10, TimeUnit.SECONDS);
+            var properties = KafkaTestUtils.producerProps(broker);
+            properties.put("schema.registry.url", "mock://change-transport-test");
+            // Class-based construction lets Kafka configure the Registry-aware serializer itself.
+            properties.put("key.serializer", StringSerializer.class);
+            properties.put("value.serializer", KafkaAvroSerializer.class);
+            var expected = AvroFixtures.merged("transport-1", "org-one");
+            try (var producer = new KafkaProducer<String, Object>(properties)) {
+                producer.send(new ProducerRecord<>("infrastructure-transport", "repo-wire", expected))
+                        .get(10, TimeUnit.SECONDS);
             }
-            var result = values.poll(Duration.ofSeconds(10).toMillis(), TimeUnit.MILLISECONDS);
-            assertThat(result).isNotNull();
-            assertThat(result.path("eventId").asString()).isEqualTo("transport-1");
-            assertThat(result.path("payload").path("repositoryId").asString()).isEqualTo("repo-1");
+            assertThat(values.poll(Duration.ofSeconds(10).toMillis(), TimeUnit.MILLISECONDS)).isEqualTo(expected);
         } finally {
             container.stop();
         }

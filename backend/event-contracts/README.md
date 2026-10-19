@@ -76,7 +76,7 @@ flowchart LR
     Plugin --> Records["Generated Java records"]
     Records --> Jar["event-contracts JAR<br/>plus schema resources"]
     Jar --> Connector["Connector mapper and producer"]
-    Jar --> Consumer["Future service consumers"]
+    Jar --> Consumer["Change Service merge consumer"]
     Baseline["Released V1 test snapshots"] --> Check["Reader/writer compatibility tests"]
     Source --> Check
 ```
@@ -134,4 +134,6 @@ For an existing deployment, stop the older JSON-producing connector, set
 Use an Avro-aware consumer on that stream. Existing JSON messages stay on the
 earlier topic, and accepted pending receipts are recovered by the new relay.
 Schema-only readiness for `PullRequestOpened` and `CommitCreated` does not add
-their webhook handlers or a downstream timeline service.
+their webhook handlers or projections. Change Service currently projects merged
+pull requests and exposes their timeline; unsupported lifecycle types stop its
+listener instead of being silently discarded.

@@ -27,4 +27,22 @@ public class ChangeMapper {
                 com.changeguard.change.event.ActorType.valueOf(change.getActorType()), change.getActorId());
     }
 
+
+    /** Revalidate the semantic contract at the consumer boundary, even when Avro decoding succeeded. */
+    public MergedChange fromAvro(com.changeguard.events.code.PullRequestMerged event) {
+        com.changeguard.events.CodeEventSchemas.validate(event);
+        var payload = event.getPayload();
+        var actor = event.getActor();
+        var correlation = event.getCorrelation();
+        return new MergedChange(event.getEventId(), event.getOrganizationId(),
+                new com.changeguard.change.event.EventSource(event.getSource().getProvider(), event.getSource().getIntegrationId()),
+                payload.getDeliveryId(), payload.getRepositoryId(), payload.getRepositoryFullName(),
+                payload.getPullRequestNumber(), payload.getPullRequestTitle(), payload.getCommitSha(),
+                payload.getSourceBranch(), payload.getTargetBranch(),
+                actor == null ? null : new com.changeguard.change.event.Actor(
+                        com.changeguard.change.event.ActorType.valueOf(actor.getType().name()), actor.getId()),
+                event.getOccurredAt(), event.getReceivedAt(), correlation == null ? null : correlation.getTraceId(),
+                correlation == null ? null : correlation.getChangeId());
+    }
+
 }

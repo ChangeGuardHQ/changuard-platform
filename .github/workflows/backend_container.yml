@@ -106,6 +106,9 @@ jobs:
           curl --fail --silent --show-error http://localhost:8081/actuator/health
           curl --fail --silent --show-error http://localhost:8082/actuator/health/readiness
           curl --fail --silent --show-error http://localhost:8082/actuator/health/liveness
+          # Confirm the read API and trusted organization binding work in the built runtime image.
+          curl --fail --silent --show-error --user "${CHANGE_SERVICE_USER:-changeguard}:${CHANGE_SERVICE_PASSWORD:-change-me}" \
+            "http://localhost:8082/api/v1/changes?organizationId=${CHANGE_ORGANIZATION_ID:-local}"
           docker compose exec -T postgres psql -U changeguard -d changeguard -v ON_ERROR_STOP=1 \
             -c 'SELECT version FROM connector.flyway_schema_history WHERE success;' \
             -c 'SELECT count(*) FROM connector.outbox_events;'

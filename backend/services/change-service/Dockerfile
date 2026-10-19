@@ -6,7 +6,8 @@ WORKDIR /workspace
 COPY services/change-service/.mvn .mvn
 COPY services/change-service/mvnw pom.xml ./
 RUN chmod +x mvnw
-COPY event-contracts/pom.xml event-contracts/pom.xml
+# Generate and package the shared Avro classes as a reactor dependency.
+COPY event-contracts event-contracts
 COPY docker/schema-registry/pom.xml docker/schema-registry/pom.xml
 COPY services/connector-service/pom.xml services/connector-service/pom.xml
 COPY services/change-service/pom.xml services/change-service/pom.xml
@@ -15,6 +16,8 @@ RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw --batch-mode --no-transfer-progress -pl services/change-service -am -DskipTests package
 
 FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS runtime
+# Apply Alpine's CVE-2026-77214 fix while retaining the pinned Temurin runtime.
+RUN apk add --no-cache libexpat=2.9.0-r0
 
 WORKDIR /app
 RUN addgroup -S -g 10001 changeguard \

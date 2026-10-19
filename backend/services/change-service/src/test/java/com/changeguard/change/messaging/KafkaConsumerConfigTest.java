@@ -14,7 +14,9 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.ContainerProperties;
-import tools.jackson.databind.JsonNode;
+import com.changeguard.change.AvroFixtures;
+import com.changeguard.events.code.PullRequestMerged;
+import io.confluent.kafka.serializers.KafkaAvroSerializer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,7 +25,9 @@ class KafkaConsumerConfigTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withConfiguration(AutoConfigurations.of(KafkaAutoConfiguration.class))
-            .withUserConfiguration(KafkaConsumerConfig.class, KafkaErrorHandlerConfig.class);
+            .withUserConfiguration(KafkaConsumerConfig.class, KafkaErrorHandlerConfig.class)
+            .withPropertyValues("spring.kafka.listener.auto-startup=false",
+                    "spring.kafka.consumer.properties.schema.registry.url=mock://change-config-test");
 
     @Test
     void brokerSecurityAndListenerOverridesReachTheContainer() {
@@ -56,29 +60,27 @@ class KafkaConsumerConfigTest {
     }
 
     @Test
-    void headerlessJsonPreservesTheEnvelopeAndIgnoresUntrustedTypeHeaders() {
+    void specificAvroUsesTheSharedContractAndIgnoresJavaTypeHeaders() {
         contextRunner.run(context -> {
             ConsumerFactory<?, ?> factory = context.getBean(ConsumerFactory.class);
             var properties = factory.getConfigurationProperties();
             var settings = new ConsumerConfig(properties);
-            try (Deserializer<?> deserializer = settings.getConfiguredInstance(
-                    ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, Deserializer.class)) {
+            try (var serializer = new KafkaAvroSerializer();
+                    Deserializer<?> deserializer = settings.getConfiguredInstance(
+                            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, Deserializer.class)) {
+                serializer.configure(java.util.Map.of("schema.registry.url", "mock://change-config-test"), false);
                 deserializer.configure(properties, false);
                 var headers = new RecordHeaders();
                 headers.add("__TypeId__", "untrusted.RemoteClass".getBytes(StandardCharsets.UTF_8));
-                Object result = deserializer.deserialize("probe", headers, """
-                        {"eventId":"event-1","payload":{"futureField":"preserved"}}
-                        """.getBytes(StandardCharsets.UTF_8));
-                assertThat(result).isInstanceOf(JsonNode.class);
-                var json = (JsonNode) result;
-                assertThat(json.path("eventId").asString()).isEqualTo("event-1");
-                assertThat(json.path("payload").path("futureField").asString()).isEqualTo("preserved");
+                var expected = AvroFixtures.merged("event-1", "org-one");
+                Object actual = deserializer.deserialize("probe", headers, serializer.serialize("probe", expected));
+                assertThat(actual).isInstanceOf(PullRequestMerged.class).isEqualTo(expected);
             }
         });
     }
 
     @Test
-    void malformedJsonIsReportedToTheContainerAsADeserializationFailure() {
+    void malformedAvroIsReportedToTheContainerAsADeserializationFailure() {
         contextRunner.run(context -> {
             ConsumerFactory<?, ?> factory = context.getBean(ConsumerFactory.class);
             var properties = factory.getConfigurationProperties();

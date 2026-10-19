@@ -1,11 +1,9 @@
 # Change Service
 
-Java 21 and Spring Boot 4 infrastructure for the ChangeGuard change lifecycle
-service. The service starts with PostgreSQL, JPA, Kafka transport, HTTP Basic
-authentication, Actuator health probes, and Prometheus metrics. Business
-event handlers are being delivered in
-[separate business-logic steps](BUSINESS_LOGIC.md). Merge records and receipt
-constraints now use production Flyway migrations.
+Projects the connector's canonical `PullRequestMerged` V1 Avro events into
+PostgreSQL merge records and organization-scoped read APIs. The implementation
+is split into four reviewable [delivery steps](BUSINESS_LOGIC.md). Build,
+deployment, opened-PR and standalone-commit projections remain later work.
 
 ## Run with Docker Compose
 
@@ -14,134 +12,108 @@ From the repository root:
 ```sh
 docker compose up --build --wait change-service
 curl --fail http://localhost:8082/actuator/health/readiness
-curl --fail http://localhost:8082/actuator/health/liveness
+curl --fail --user changeguard:change-me 'http://localhost:8082/api/v1/changes?organizationId=local'
 ```
 
-Compose also starts the service's PostgreSQL database and Kafka broker, waits
-for their health checks, and retains database data in `postgres_data`. The
-PostgreSQL database is shared with the connector; Change Service uses the
-`change` schema, while connector migrations own the `connector` schema.
-The application runs as a non-root user with a read-only root filesystem and
-writable temporary storage. Stop the stack with `docker compose down`.
+Compose starts PostgreSQL, Kafka and Schema Registry before the service. The
+shared database uses `change` for this service and `connector` for the producer.
+Flyway applies the real domain migrations before Hibernate validates mappings.
+The runtime uses a non-root user, read-only filesystem, and writable temporary
+storage. Stop it with `docker compose down`; named volumes retain data.
 
-Compose sets the development HTTP Basic credentials to `changeguard` /
-`change-me`. Override them with `CHANGE_SERVICE_USER` and
-`CHANGE_SERVICE_PASSWORD`. Compose database credentials use `POSTGRES_USER`
-and `POSTGRES_PASSWORD`, defaulting to `changeguard` / `changeguard-local`.
+Compose binds the development reader to organization `local`. Set
+`CHANGE_ORGANIZATION_ID` to the same trusted organization used by the connector's
+integration. Set `CHANGE_ORGANIZATION_READERS` to authenticated usernames allowed
+to query it. Override Basic credentials using `CHANGE_SERVICE_USER` and
+`CHANGE_SERVICE_PASSWORD`. Changing query parameters cannot grant organization
+access. An empty binding grants no access when running outside Compose.
 
-## Run the application locally
+## Run locally
 
-Start the dependencies from the repository root:
-
-```sh
-docker compose up --build --wait postgres kafka
-```
-
-Then, from `backend/services/change-service`:
+Start `postgres kafka schema-registry` through Compose. From this service directory:
 
 ```sh
+./mvnw -f ../../pom.xml -pl event-contracts -am -DskipTests install
 ./mvnw spring-boot:run
 ```
 
-Use `mvnw.cmd` on Windows. A standalone Maven launch uses Spring Boot's default
-`user` account and a password printed at startup, unless
-`SPRING_SECURITY_USER_NAME` and `SPRING_SECURITY_USER_PASSWORD` are supplied.
+The first command installs the shared generated contract for the standalone
+launch. Set `SPRING_SECURITY_USER_NAME`, `SPRING_SECURITY_USER_PASSWORD`,
+`CHANGE_ORGANIZATION_ID`, and `CHANGE_ORGANIZATION_READERS` for authenticated
+reads. Without explicit credentials, Boot creates its default local account.
 
 ## Configuration
 
-Defaults are in [application.yml](src/main/resources/application.yml).
+Defaults live in [application.yml](src/main/resources/application.yml).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SERVER_PORT` | `8082` | Application HTTP port. |
-| `DB_URL` | `jdbc:postgresql://localhost:5432/changeguard?currentSchema=change` | JDBC connection URL. |
-| `DB_USERNAME` | `changeguard` | Database login. |
-| `DB_PASSWORD` | `changeguard-local` | Database password. |
-| `DB_POOL_SIZE` | `10` | Maximum JDBC pool size. |
+| `SERVER_PORT` | `8082` | HTTP port. |
+| `DB_URL` | `jdbc:postgresql://localhost:5432/changeguard?currentSchema=change` | JDBC URL. |
+| `DB_USERNAME` / `DB_PASSWORD` | `changeguard` / `changeguard-local` | Development database credentials. |
+| `DB_POOL_SIZE` | `10` | JDBC pool maximum. |
+| `FLYWAY_ENABLED` | `true` | Apply reviewed migrations before JPA validation. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker addresses. |
-| `KAFKA_CONSUMER_GROUP` | `change-service-group` | Consumer group. |
-| `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Topic for future business listeners. |
-| `KAFKA_LISTENER_AUTO_STARTUP` | `false` | Enable only after business listeners are implemented. |
-| `FLYWAY_ENABLED` | `true` | Apply the reviewed domain migrations before JPA validation. |
+| `KAFKA_CONSUMER_GROUP` | `change-service-group` | Durable projection consumer group. |
+| `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Connector's canonical Avro topic. |
+| `SCHEMA_REGISTRY_URL` | `http://localhost:8083` | Writer schema lookup. |
+| `KAFKA_LISTENER_AUTO_STARTUP` | `true` | Set false to pause projection without changing offsets. |
+| `CHANGE_ORGANIZATION_ID` | empty | Trusted organization binding; Compose defaults to `local`. |
+| `CHANGE_ORGANIZATION_READERS` | empty | Comma-separated authenticated usernames; Compose binds its Basic user. |
 
-Compose host ports can be changed with `CHANGE_SERVICE_PORT`, `POSTGRES_PORT`,
-and `KAFKA_PORT`. When running Maven directly, update the JDBC URL or broker
-addresses to match any changed dependency ports. Compose uses internal
-container addresses independently of host ports.
+Configure `changeguard.api.organizations` directly for multiple trusted bindings.
+Compose uses internal container addresses independently of host port overrides.
+Kafka security properties can be supplied through standard Boot configuration.
 
-## Infrastructure behavior
+## Projection and replay semantics
 
-- Health, liveness, and readiness GET endpoints are public. Readiness includes
-  the PostgreSQL connection; liveness checks the application's lifecycle.
-  Anonymous health responses omit component details.
-- Other HTTP paths, including `/actuator/info` and `/actuator/prometheus`,
-  require HTTP Basic authentication. Requests do not create HTTP sessions.
-  CSRF protection remains enabled for browser-supplied Basic credentials.
-- Kafka consumers use record acknowledgements and disable automatic offset
-  commits. Jackson 3 deserialization preserves the complete event as a JSON
-  tree and ignores Java type headers supplied by producers. Deserialization
-  failures are passed to the shared error handler.
-- The error handler stops a listener on failure so its failed record can be
-  replayed after restart. Retry and dead-letter policies belong to the future
-  business consumer. No business listener is registered, so the application
-  currently consumes no events. Readiness does not test broker connectivity.
-- Hibernate validates mappings and does not generate tables. Flyway applies the
-  change-record and processed-event migrations in the `change` schema. Their
-  unique keys keep repeated provider facts independent of delivery count; the
-  receipt foreign key preserves organization ownership.
+- A change is unique by organization, provider, repository ID, and PR number.
+  Multiple deliveries or integrations reporting the same merge retain one UUID.
+- The change and event receipt commit in one database transaction. Event IDs are
+  scoped by organization; a fingerprint rejects reuse with different facts.
+  A receipt failure rolls back a newly inserted projection as well.
+- Merge commit and provider occurrence time are immutable. The first accepted
+  title, repository name and actor metadata remain attached to the merge.
+  Redelivery receipt time does not alter identity. Correlation IDs never select
+  or overwrite this service's change ID.
+- The listener validates the shared contract and repository partition key,
+  then returns only after database commit. Record acknowledgments and disabled
+  auto-commit prevent a failed transaction from advancing the Kafka offset.
+- Invalid Avro, conflicting facts, unsupported event types/versions and database
+  failures stop the listener with the failed offset retained. Repair the cause,
+  then restart the listener/service. This release has no automatic DLT discard.
+  Implement new handlers before enabling opened-PR/commit producers on the topic.
+- Health GET endpoints are public and omit anonymous component details. Other
+  reads require Basic authentication. HTTP sessions are disabled and CSRF remains
+  enabled. Readiness checks PostgreSQL, independently of asynchronous Kafka progress.
 
+## Read API
 
-The Kafka configuration uses Spring Kafka's
-[Jackson JSON support](https://docs.spring.io/spring-kafka/reference/kafka/serdes.html)
-and [container-stopping error handler](https://docs.spring.io/spring-kafka/docs/4.0.x/api/org/springframework/kafka/listener/CommonContainerStoppingErrorHandler.html).
+- `GET /api/v1/changes?organizationId=org-one&page=0&size=20` lists records with
+  optional `repositoryId`. Size is 1..100 and page is 0..10000. Sort order is
+  merge time descending, then UUID ascending for a stable tie-breaker.
+- `GET /api/v1/changes/{id}?organizationId=org-one` returns a scoped change.
+- `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns one merge
+  fact with its original event ID, occurrence time and optional actor.
 
-The service inherits shared dependency and security patch versions from
-[the backend reactor](../../pom.xml), and is included in its module list.
+Missing authentication returns 401, an unbound organization returns 403, and
+an ID outside the authorized organization returns 404. Invalid query values
+return 400. There is no HTTP mutation endpoint for provider-owned merge facts.
 
 ## Verify
 
-From this directory:
+Build the three hardened integration images from the repository root first:
 
 ```sh
-./mvnw verify
+docker build --tag changuard-postgres:18.6-security.1 backend/docker/postgres
+docker build --tag changuard-kafka:4.2.2-security.2 backend/docker/kafka
+docker build --file backend/docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.2 backend
+sh backend/services/change-service/mvnw -f backend/pom.xml -pl services/change-service -am verify
 ```
 
-Tests require a running Docker daemon. They start a disposable PostgreSQL
-container and an embedded Kafka broker; external database and broker instances
-are unnecessary. The first run downloads Maven dependencies and the PostgreSQL
-image. PostgreSQL startup tests apply the production Flyway migrations and verify JDBC,
-JPA, business-key uniqueness, and organization-scoped receipt constraints.
-
-Infrastructure tests cover authentication, CSRF protection, stateless requests,
-health probes, Prometheus output, broker/security property overrides, JSON
-transport, malformed messages, and stopping listeners without committing failed
-records. The root backend CI workflow verifies both backend services and builds
-and smoke-tests their container images.
-
-## Merge ingestion semantics
-
-The application service commits the change and its event receipt together.
-Concurrent deliveries of the same PR merge retain one service-owned UUID. Event
-IDs are scoped to their organization; reuse with different facts fails and rolls
-back. Merge commit and occurrence time are immutable. A repeated receipt time
-does not change identity or overwrite the first accepted metadata.
-
-## Organization-scoped read API
-
-All reads require HTTP Basic authentication and an organization-to-reader binding
-owned by deployment configuration. Set `CHANGE_ORGANIZATION_ID` and
-`CHANGE_ORGANIZATION_READERS` (comma-separated authenticated usernames) for a
-single binding, or configure `changeguard.api.organizations` for multiple owners.
-Empty defaults grant no organization access. Supplying an organization query
-parameter never grants permission to read it.
-
-- `GET /api/v1/changes?organizationId=org-one&page=0&size=20` lists merge records.
-  `repositoryId` is optional. Page size is 1..100, with merge time descending and
-  change ID ascending as the stable tie-breaker. Page numbers are 0..10000.
-- `GET /api/v1/changes/{id}?organizationId=org-one` returns one scoped change.
-- `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns one merge
-  fact, including its occurrence time and original actor attribution.
-
-Missing authentication returns 401, an unbound organization returns 403, and an
-ID outside the authorized organization returns 404. Invalid query values return
-400. No HTTP write endpoint is provided for provider-owned merge facts.
+Tests use disposable PostgreSQL, Kafka and Registry containers, plus an embedded
+broker for focused transport checks. They cover migrations, tenant isolation,
+concurrent deliveries, rollback, authorization, pagination, specific Avro decoding,
+real broker replay, and retained offsets for invalid records. No external provider
+credentials or existing databases are needed. Generated Avro sources remain in
+`target`; only reviewed schemas and source files are versioned.

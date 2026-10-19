@@ -13,6 +13,8 @@ RUN --mount=type=cache,target=/root/.m2 \
     sh ./mvnw --batch-mode --no-transfer-progress -pl docker/schema-registry -am -DskipTests package
 
 FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
+# Apply Alpine's CVE-2026-77214 fix while retaining the pinned Temurin runtime.
+RUN apk add --no-cache libexpat=2.9.0-r0
 RUN addgroup -S -g 10001 changeguard \
     && adduser -S -D -H -u 10001 -G changeguard changeguard
 WORKDIR /opt/schema-registry

@@ -5,7 +5,7 @@ The [backend Maven reactor](pom.xml) contains the
 [Schema Registry runtime](docker/schema-registry/README.md), the
 [Connector Service](services/connector-service/pom.xml), and the
 [Change Service](services/change-service/README.md). Change Service provides
-infrastructure while its business logic remains scaffolded. The connector targets Java 21 and
+merge projection, durable consumer deduplication, and organization-scoped read APIs. The connector targets Java 21 and
 uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka,
 Actuator, Spring JDBC, and Flyway. Its role is to receive external integration
 events and publish normalized ChangeGuard events through a durable outbox.
@@ -161,8 +161,8 @@ The frontend is available on port 5173, the connector on 8081, and Kafka on
 localhost:9092. Override host ports with `FRONTEND_PORT`, `CONNECTOR_PORT`, and
 `KAFKA_PORT`; PostgreSQL is bound to localhost on `POSTGRES_PORT` (default 5432).
 Change Service is available at localhost:8082, controlled by `CHANGE_SERVICE_PORT`.
-It connects to the same database with its own `change` schema; domain migrations
-remain disabled until implemented. See its [development guide](services/change-service/README.md).
+It applies its own `change` migrations, consumes canonical Avro merges, and serves
+organization-scoped list/detail/timeline endpoints. See its [development guide](services/change-service/README.md).
 Registry is available at localhost:8083, controlled by `SCHEMA_REGISTRY_PORT`;
 containers use `http://schema-registry:8081`. Its schema history lives in Kafka's
 compacted `_schemas` topic. See [Registry runtime diagrams](docker/schema-registry/README.md).
@@ -283,7 +283,8 @@ the [shared CodeQL setup instructions](../README.md#25-cicd).
 Local validation on October 4, 2026 found no HIGH/CRITICAL findings in the
 connector, frontend, or patched Kafka images. The upstream `apache/kafka:4.2.2`
 still has five HIGH findings; the [Kafka Dockerfile](docker/kafka/Dockerfile)
-fixes them with libexpat 2.8.5-r0 and Jackson 2.21.7. The `security.2` image also
+originally fixed them with libexpat 2.8.5-r0 and Jackson 2.21.7. Current JVM
+runtimes install libexpat 2.9.0-r0 to also fix `CVE-2026-77214`. The `security.2` image also
 updates LZ4 Java to 1.11.4 for `CVE-2026-106451`. CI builds and scans the patched
 image and keeps the same HIGH/CRITICAL failure policy. Image scan findings are
 summarized in the job log, with the full JSON reports retained as artifacts.
@@ -928,7 +929,7 @@ deliveries before returning. Verified unsupported events are ignored. Rejections
 and persistence failures propagate as documented HTTP statuses.
 
 Next work includes browser connection screens, OIDC/JWT, opened-PR
-and commit webhook adapters, and downstream consumers. The
+and commit webhook adapters, and build/deployment consumers. The
 [GitHub integration delivery plan](../docs/plans/github-repository-integration.md)
 covers installation, persistence, transactional outbox, canonical schemas, and
 the first complete ingestion-to-timeline flow. The

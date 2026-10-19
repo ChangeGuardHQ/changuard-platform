@@ -47,16 +47,15 @@ spring:
 
       properties:
         spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
-        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
-        # Preserve the full JSON envelope until the business event contract is implemented.
-        spring.json.value.default.type: tools.jackson.databind.JsonNode
-        spring.json.trusted.packages: "com.changeguard.change.event,tools.jackson.databind"
-        spring.json.use.type.headers: false
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
+        # Resolve writer schemas from Registry and materialize only the shared generated records.
+        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8083}
+        specific.avro.reader: true
 
     listener:
       ack-mode: record
-      # Explicitly enable after business listeners are implemented.
-      auto-startup: ${KAFKA_LISTENER_AUTO_STARTUP:false}
+      # Pause without changing consumer-group offsets when maintenance is required.
+      auto-startup: ${KAFKA_LISTENER_AUTO_STARTUP:true}
 
   lifecycle:
     timeout-per-shutdown-phase: 20s
@@ -105,5 +104,5 @@ changeguard:
         readers: ${CHANGE_ORGANIZATION_READERS:}
   kafka:
     topics:
-      # This is the platform's versioned Avro topic; listeners remain disabled until implemented.
+      # Matches the connector's versioned Avro topic and repository partition key.
       code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events.v1}
