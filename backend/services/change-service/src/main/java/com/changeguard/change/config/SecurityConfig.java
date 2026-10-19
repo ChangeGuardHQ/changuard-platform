@@ -12,6 +12,7 @@ import org.springframework.security.web.SecurityFilterChain;
 
 /** HTTP Basic authentication for the initial service infrastructure. */
 @Configuration(proxyBeanMethods = false)
+@org.springframework.boot.context.properties.EnableConfigurationProperties(ChangeApiProperties.class)
 public class SecurityConfig {
 
     @Bean

@@ -1,6 +1,6 @@
 package com.changeguard.change.exception;
 
+/** A scoped lookup deliberately does not reveal whether another organization owns the ID. */
 public class ChangeNotFoundException extends RuntimeException {
-
-    // TODO: Add context for a change lookup failure.
+    public ChangeNotFoundException() { super("Change not found"); }
 }

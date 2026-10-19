@@ -10,16 +10,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -33,16 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @AutoConfigureMetrics
 @ActiveProfiles("test")
-@Testcontainers
+@org.springframework.context.annotation.Import(PostgresTestConfiguration.class)
 class ChangeServiceApplicationTests {
-
-    @Container
-    @ServiceConnection
-    // Use the same schema and configurable hardened test image as the integrated runtime.
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse(
-            System.getProperty("changeguard.test.postgres-image",
-                    "mirror.gcr.io/library/postgres@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"))
-            .asCompatibleSubstituteFor("postgres")).withUrlParam("currentSchema", "change");
 
     @Autowired
     private MockMvc mockMvc;
@@ -60,16 +47,18 @@ class ChangeServiceApplicationTests {
     private KafkaListenerEndpointRegistry listenerRegistry;
 
     @Test
-    void postgresFlywayAndJpaStartWithOnlyTheInfrastructureTestSchema() throws Exception {
+    void postgresFlywayAndJpaStartWithTheDomainSchema() throws Exception {
         try (var connection = dataSource.getConnection()) {
             assertThat(connection.isValid(2)).isTrue();
         }
         assertThat(entityManagerFactory.isOpen()).isTrue();
-        assertThat(flyway.info().current().getScript()).isEqualTo("V1__create_infrastructure_probe.sql");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(new JdbcTemplate(dataSource).queryForObject(
-                "SELECT count(*) FROM infrastructure_probe", Integer.class)).isEqualTo(1);
-        assertThat(listenerRegistry.getListenerContainers()).isEmpty();
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'change' "
+                        + "AND table_name IN ('change_records', 'processed_events')", Integer.class)).isEqualTo(2);
+        assertThat(listenerRegistry.getListenerContainers()).hasSize(1);
+        assertThat(listenerRegistry.getListenerContainer("code-change-events").isRunning()).isFalse();
     }
 
     @ParameterizedTest

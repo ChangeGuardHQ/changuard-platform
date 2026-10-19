@@ -528,14 +528,14 @@ relay publishes registered Avro to Kafka after leasing durable work. The UI has 
 | Connector merged-PR intake, signature verification, normalization, envelope, and relay | Implemented; other adapters planned | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
 | GitHub installation and repository selection | Backend implemented; browser UI planned | [GitHub connection](#1211-github-connection-and-repository-selection), [ownership and setup diagrams](backend/services/connector-service/README.md) |
 | CI/build, deployment, and runtime ingestion | Planned V1 | [Connector adapters](#1212-ci-and-build-ingestion) |
-| Change records and lifecycle timelines | Planned V1 | [Change Service](#122-change-service) |
+| Change records and lifecycle timelines | Merged-PR projection and read APIs implemented; build/deployment linking planned | [Change Service](#122-change-service) |
 | Impact detection and baseline windows | Planned V1 | [Correlation Service](#123-correlation-service), [engine](#17-correlation-engine) |
 | Immutable audit history and actor attribution | Planned V1 | [Audit Service](#124-audit-service), [AI audit model](#18-ai-audit-model) |
 | API Gateway and Query/BFF | Planned V1 | [Read aggregation](#125-querybff-service), [API routing](#19-api-design) |
 | Kafka broker, partitions, and consumer groups | Partial | [Kafka](#10-kafka-design), [image build and smoke test](backend/docker/kafka/README.md) |
 | Canonical contracts and Schema Registry | Code schemas and merged-PR Avro publication implemented; other adapters planned | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
 | PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [PostgreSQL runtime](backend/docker/postgres/README.md), [cache](#14-redis-strategy) |
-| Transactional outbox, deduplication, and failure recovery | Connector intake, leases and retry relay implemented; consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
+| Transactional outbox, deduplication, and failure recovery | Connector relay and idempotent merge consumer implemented; other consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
 | Authentication, authorization, and secrets | Partial | [Security](#20-security), [current connector rules](backend/README.md#security-and-observability) |
 | Metrics, logs, traces, and alerts | Partial | [Observability](#21-observability) |
 | Local containers and CI verification | Implemented | [Compose](#23-local-development), [CI](#25-cicd) |
@@ -669,7 +669,7 @@ status
 
 # 9. Event-Driven Architecture
 
-**Status: planned V1 processing; the connector producer component and broker exist.**
+**Status: merged-PR production and projection implemented; other lifecycle processing planned.**
 REST serves interactive queries and configuration commands. Kafka carries durable
 lifecycle facts so each consumer can update its own projection at its own pace.
 An accepted ingestion request and a queryable timeline are separate milestones;
@@ -1156,8 +1156,14 @@ flowchart LR
 
 ## 12.2 Change Service
 
-**Status: planned V1.** This service turns code, build, and deployment facts into
-queryable change records. It owns lifecycle relationships and its database schema.
+**Status: merged-PR projection implemented; build/deployment linking planned.**
+The service consumes the shared `PullRequestMerged` V1 Avro contract, commits one
+change per organization/provider/repository/PR with durable event receipts, and
+serves authenticated organization-scoped list, detail and timeline reads. See its
+[delivery steps and behavior](backend/services/change-service/BUSINESS_LOGIC.md)
+and [service guide](backend/services/change-service/README.md). The diagram below
+shows the full lifecycle target, including outgoing domain events still to come.
+It owns lifecycle relationships and its database schema.
 Consumers deduplicate event IDs and commit projection updates with any outgoing
 domain event in one transaction. Other services read its API rather than its tables.
 
@@ -1707,11 +1713,12 @@ REMEDIATION_PROPOSAL
 
 # 19. API Design
 
-**Status: planned V1 API surface, except the implemented GitHub webhook adapter.**
+**Status: planned V1 API surface, except the implemented GitHub webhook adapter and organization-scoped change list/detail/timeline reads.**
 Browser queries use the Gateway/BFF and organization-authorized service APIs.
 Integration commands configure ingestion, while provider webhooks enter the
-connector through a separate signature-authenticated route. The listed GET and
-integration-setup endpoints are target contracts, not available implementations.
+connector through a separate signature-authenticated route. The remaining GET
+and integration-setup endpoints below are target contracts. Implemented change
+reads require an authorized `organizationId` query parameter.
 
 ```mermaid
 flowchart LR
@@ -1976,7 +1983,7 @@ planned. Signed merged-PR webhook traffic reaches Kafka through the durable outb
 flowchart LR
     Browser["Host browser"] -->|"localhost:5173"| Frontend["frontend: Vite"]
     Client["Host curl / webhook fixture"] -->|"localhost:8081"| Connector["connector-service: Spring Boot"]
-    ChangeClient["Host change API client"] -->|"localhost:8082"| Change["change-service: infrastructure"]
+    ChangeClient["Host change API client"] -->|"localhost:8082"| Change["change-service: merge projection / read API"]
     RegistryClient["Host schema client"] -->|"localhost:8083"| Registry["schema-registry: port 8081"]
     KafkaClient["Host Kafka client"] -->|"localhost:9092 / external<br/>listener"| Kafka["kafka: broker + KRaft<br/>controller"]
     Connector -.->|"configured producer:<br/>kafka:9092"| Kafka
@@ -2235,7 +2242,7 @@ exact versions matching the lockfile.
 | LZ4 Java (connector, Registry, broker) | `1.11.4` |
 | Connector Jackson BOMs | `2.21.7` (Flyway dependencies) / `3.1.7` (application mapper) |
 | Kafka Jackson modules | `2.21.7` (annotations `2.21`) |
-| Kafka libexpat | `2.8.5-r0` |
+| Backend runtime libexpat | `2.9.0-r0` |
 | CodeQL bundle | `2.27.1` |
 | Semgrep CE | `1.179.0` (image digest pinned) |
 | Semgrep rules | `a84ff9cc2453ca91d581380de4b8b3f272f6f4be` |

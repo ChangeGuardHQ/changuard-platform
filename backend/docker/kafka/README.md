@@ -65,7 +65,7 @@ the following stable dependency patches:
 
 | Dependency | Upstream version | Patched version | Findings addressed |
 | --- | --- | --- | --- |
-| libexpat | `2.8.4-r0` | `2.8.5-r0` | `CVE-2026-93990` |
+| libexpat | `2.8.4-r0` | `2.9.0-r0` | `CVE-2026-93990`, `CVE-2026-77214` |
 | Jackson core | `2.21.6` | `2.21.7` | `CVE-2026-89407`, `CVE-2026-89425` |
 | Jackson databind | `2.21.6` | `2.21.7` | `CVE-2026-91776`, `CVE-2026-91777` |
 | LZ4 Java | `1.11.2` | `1.11.4` | `CVE-2026-106451` |

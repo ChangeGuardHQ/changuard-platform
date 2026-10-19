@@ -34,7 +34,8 @@ LABEL org.opencontainers.image.title="ChangeGuard Kafka" \
 USER root
 # Replace vulnerable libexpat, LZ4, and Jackson modules, retaining annotations 2.21
 # as specified by the Jackson 2.21.7 BOM. Vendor CDS archives use the old JARs.
-RUN apk add --no-cache libexpat=2.8.5-r0 \
+# Alpine 2.9.0-r0 closes the newer XML_ParseBuffer over-read (CVE-2026-77214).
+RUN apk add --no-cache libexpat=2.9.0-r0 \
     && rm -f /opt/kafka/libs/jackson-*-2.21.6.jar \
         /opt/kafka/libs/lz4-java-*.jar \
         /opt/kafka/kafka.jsa /opt/kafka/storage.jsa \

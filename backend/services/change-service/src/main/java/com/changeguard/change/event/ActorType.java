@@ -1,6 +1,6 @@
 package com.changeguard.change.event;
 
+/** Preserve producer attribution without inferring whether an actor is human or automated. */
 public enum ActorType {
-
-    // TODO: Define actor types compatible with the connector event contract.
+    HUMAN, BOT, AI, UNKNOWN
 }

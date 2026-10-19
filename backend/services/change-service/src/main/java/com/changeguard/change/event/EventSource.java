@@ -1,6 +1,11 @@
 package com.changeguard.change.event;
 
-public class EventSource {
+import org.springframework.util.Assert;
 
-    // TODO: Define the event provider and integration identity.
+/** Trusted organization integration supplied by the producer, never an HTTP query parameter. */
+public record EventSource(String provider, String integrationId) {
+    public EventSource {
+        Assert.hasText(provider, "Provider is required");
+        Assert.hasText(integrationId, "Integration ID is required");
+    }
 }

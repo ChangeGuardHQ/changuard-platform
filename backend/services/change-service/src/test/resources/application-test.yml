@@ -1,8 +1,8 @@
 spring:
   flyway:
-    # Test-only schema proves migration wiring without applying domain placeholders.
+    # Exercise the same domain migrations used by the deployed application.
     enabled: true
-    locations: classpath:db/infrastructure-test
+    locations: classpath:db/migration
   kafka:
     admin:
       auto-create: false
