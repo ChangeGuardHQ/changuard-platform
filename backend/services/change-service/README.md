@@ -3,7 +3,7 @@
 Java 21 and Spring Boot 4 infrastructure for the ChangeGuard change lifecycle
 service. The service starts with PostgreSQL, JPA, Kafka transport, HTTP Basic
 authentication, Actuator health probes, and Prometheus metrics. Business
-endpoints, idempotency operations, and event handlers are being delivered in
+endpoints and event handlers are being delivered in
 [separate business-logic steps](BUSINESS_LOGIC.md). Merge records and receipt
 constraints now use production Flyway migrations.
 
@@ -117,3 +117,11 @@ health probes, Prometheus output, broker/security property overrides, JSON
 transport, malformed messages, and stopping listeners without committing failed
 records. The root backend CI workflow verifies both backend services and builds
 and smoke-tests their container images.
+
+## Merge ingestion semantics
+
+The application service commits the change and its event receipt together.
+Concurrent deliveries of the same PR merge retain one service-owned UUID. Event
+IDs are scoped to their organization; reuse with different facts fails and rolls
+back. Merge commit and occurrence time are immutable. A repeated receipt time
+does not change identity or overwrite the first accepted metadata.

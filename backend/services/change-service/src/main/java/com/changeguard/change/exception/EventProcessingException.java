@@ -1,6 +1,7 @@
 package com.changeguard.change.exception;
 
+/** A contradictory replay must roll back rather than silently overwrite a provider fact. */
 public class EventProcessingException extends RuntimeException {
-
-    // TODO: Add event-processing failure context and cause.
+    public EventProcessingException(String message) { super(message); }
+    public EventProcessingException(String message, Throwable cause) { super(message, cause); }
 }
