@@ -13,6 +13,11 @@ public interface ChangeRecordRepository extends JpaRepository<ChangeRecord, UUID
     Optional<ChangeRecord> findByOrganizationIdAndProviderAndRepositoryIdAndPullRequestNumber(
             String organizationId, String provider, String repositoryId, int pullRequestNumber);
 
+    @Query("select c from ChangeRecord c where c.organizationId = :organization "
+            + "and (:repository is null or c.repositoryId = :repository)")
+    org.springframework.data.domain.Page<ChangeRecord> findPage(@Param("organization") String organization,
+            @Param("repository") String repository, org.springframework.data.domain.Pageable pageable);
+
     // PostgreSQL waits for a concurrent insert on the same business identity before returning.
     @Modifying
     @Query(value = """

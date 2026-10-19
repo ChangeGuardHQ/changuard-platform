@@ -94,6 +94,20 @@ class ChangeApplicationServiceTest {
         assertThat(receiptCount()).isEqualTo(2);
     }
 
+    @Test
+    void readPagesAndIdsCannotCrossOrganizationBoundaries() {
+        var first = service.ingest(merged("one", "org-one", "repo", 7));
+        service.ingest(merged("two", "org-one", "other-repo", 8));
+        service.ingest(merged("three", "org-two", "repo", 7));
+        assertThat(service.list("org-one", null, 0, 1).getTotalElements()).isEqualTo(2);
+        assertThat(service.list("org-one", "repo", 0, 20).getContent()).extracting(ChangeRecord::getId)
+                .containsExactly(first.getId());
+        assertThatThrownBy(() -> service.find("org-two", first.getId()))
+                .isInstanceOf(com.changeguard.change.exception.ChangeNotFoundException.class);
+        assertThatThrownBy(() -> service.list("org-one", null, -1, 20)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.list("org-one", null, 0, 101)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private long receiptCount() {
         return jdbc.sql("SELECT count(*) FROM change.processed_events").query(Long.class).single();
     }

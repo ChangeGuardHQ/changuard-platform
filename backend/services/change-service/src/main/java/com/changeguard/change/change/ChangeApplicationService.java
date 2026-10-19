@@ -36,4 +36,22 @@ public class ChangeApplicationService {
         idempotency.record(merge, stored.getId());
         return stored;
     }
+
+    @Transactional(readOnly = true)
+    public ChangeRecord find(String organization, java.util.UUID id) {
+        return changes.findByOrganizationIdAndId(organization, id)
+                .orElseThrow(com.changeguard.change.exception.ChangeNotFoundException::new);
+    }
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<ChangeRecord> list(String organization, String repository, int page, int size) {
+        org.springframework.util.Assert.isTrue(page >= 0 && page <= 10000 && size >= 1 && size <= 100,
+                "Page must be 0..10000 and size must be 1..100");
+        if (repository != null) org.springframework.util.Assert.hasText(repository, "Repository must be nonblank");
+        // A UUID tie-breaker makes pages deterministic when multiple merges share an occurrence time.
+        var order = org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "mergedAt")
+                .and(org.springframework.data.domain.Sort.by("id"));
+        return changes.findPage(organization, repository, org.springframework.data.domain.PageRequest.of(page, size, order));
+    }
+
 }

@@ -3,7 +3,7 @@
 Java 21 and Spring Boot 4 infrastructure for the ChangeGuard change lifecycle
 service. The service starts with PostgreSQL, JPA, Kafka transport, HTTP Basic
 authentication, Actuator health probes, and Prometheus metrics. Business
-endpoints and event handlers are being delivered in
+event handlers are being delivered in
 [separate business-logic steps](BUSINESS_LOGIC.md). Merge records and receipt
 constraints now use production Flyway migrations.
 
@@ -125,3 +125,23 @@ Concurrent deliveries of the same PR merge retain one service-owned UUID. Event
 IDs are scoped to their organization; reuse with different facts fails and rolls
 back. Merge commit and occurrence time are immutable. A repeated receipt time
 does not change identity or overwrite the first accepted metadata.
+
+## Organization-scoped read API
+
+All reads require HTTP Basic authentication and an organization-to-reader binding
+owned by deployment configuration. Set `CHANGE_ORGANIZATION_ID` and
+`CHANGE_ORGANIZATION_READERS` (comma-separated authenticated usernames) for a
+single binding, or configure `changeguard.api.organizations` for multiple owners.
+Empty defaults grant no organization access. Supplying an organization query
+parameter never grants permission to read it.
+
+- `GET /api/v1/changes?organizationId=org-one&page=0&size=20` lists merge records.
+  `repositoryId` is optional. Page size is 1..100, with merge time descending and
+  change ID ascending as the stable tie-breaker. Page numbers are 0..10000.
+- `GET /api/v1/changes/{id}?organizationId=org-one` returns one scoped change.
+- `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns one merge
+  fact, including its occurrence time and original actor attribution.
+
+Missing authentication returns 401, an unbound organization returns 403, and an
+ID outside the authorized organization returns 404. Invalid query values return
+400. No HTTP write endpoint is provided for provider-owned merge facts.

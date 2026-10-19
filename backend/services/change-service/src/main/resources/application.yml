@@ -98,6 +98,11 @@ logging:
     org.hibernate.SQL: INFO
 
 changeguard:
+  api:
+    # Empty defaults grant no data access; configure trusted service readers per organization.
+    organizations:
+      - organization-id: ${CHANGE_ORGANIZATION_ID:}
+        readers: ${CHANGE_ORGANIZATION_READERS:}
   kafka:
     topics:
       # This is the platform's versioned Avro topic; listeners remain disabled until implemented.
