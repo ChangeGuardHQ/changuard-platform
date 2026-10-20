@@ -73,7 +73,8 @@ Kafka security properties can be supplied through standard Boot configuration.
   Multiple deliveries or integrations reporting the same merge retain one UUID.
 - The change and event receipt commit in one database transaction. Event IDs are
   scoped by organization; a fingerprint rejects reuse with different facts.
-  A receipt failure rolls back a newly inserted projection as well.
+  The change, business timeline fact and receipt commit together; any failure
+  rolls back all three. V3 backfills existing merges without changing their IDs.
 - Merge commit and provider occurrence time are immutable. The first accepted
   title, repository name and actor metadata remain attached to the merge.
   Redelivery receipt time does not alter identity. Correlation IDs never select
@@ -98,8 +99,9 @@ Kafka security properties can be supplied through standard Boot configuration.
   optional `repositoryId`. Size is 1..100 and page is 0..10000. Sort order is
   merge time descending, then UUID ascending for a stable tie-breaker.
 - `GET /api/v1/changes/{id}?organizationId=org-one` returns a scoped change.
-- `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns one merge
-  fact with its original event ID, occurrence time and optional actor.
+- `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns stored lifecycle
+  facts ordered by provider occurrence time, type and original event ID. Each fact
+  retains its own actor; delivery retries never add timeline entries.
 
 Missing authentication returns 401, an unbound organization returns 403, and
 an ID outside the authorized organization returns 404. Invalid query values

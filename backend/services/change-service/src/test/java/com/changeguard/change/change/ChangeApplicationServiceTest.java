@@ -28,7 +28,7 @@ class ChangeApplicationServiceTest {
     @Autowired JdbcClient jdbc;
 
     @BeforeEach
-    void reset() { jdbc.sql("TRUNCATE change.processed_events, change.change_records").update(); }
+    void reset() { jdbc.sql("TRUNCATE change.change_timeline, change.processed_events, change.change_records").update(); }
 
     @Test
     void replayReturnsTheOriginalIdAndDistinctDeliveriesDoNotCreateAnotherMerge() {
@@ -37,6 +37,8 @@ class ChangeApplicationServiceTest {
         assertThat(service.ingest(merged("two", "org-one", "repo", 7)).getId()).isEqualTo(first.getId());
         assertThat(changes.count()).isEqualTo(1);
         assertThat(receiptCount()).isEqualTo(2);
+        assertThat(service.timeline("org-one", first.getId()).entries()).hasSize(1)
+                .first().extracting(com.changeguard.change.api.dto.ChangeTimelineResponse.Entry::eventId).isEqualTo("one");
     }
 
     @Test
@@ -68,6 +70,7 @@ class ChangeApplicationServiceTest {
                     .isInstanceOf(DataIntegrityViolationException.class);
             assertThat(changes.count()).isZero();
             assertThat(receiptCount()).isZero();
+            assertThat(jdbc.sql("SELECT count(*) FROM change.change_timeline").query(Long.class).single()).isZero();
         } finally {
             jdbc.sql("ALTER TABLE change.processed_events DROP CONSTRAINT reject_test_receipt").update();
         }

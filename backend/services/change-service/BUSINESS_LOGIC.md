@@ -46,3 +46,11 @@ cover retry success, invalid Avro, later-record progress and DLT publishing fail
 consumer-state gauges, commit-aware ingestion counters, recovery outcomes and
 native Kafka lag metrics. Read API readiness remains tied to the database.
 Tests cover rollback-safe counters, failed recovery and container state changes.
+
+## Follow-up PR 3: persistent timeline
+
+`feature/change-persistent-timeline` appends business facts in the same transaction
+as projection and event receipts. V3 backfills existing merge records using their
+original event IDs, actors and occurrence times. Scoped reads return stored facts;
+duplicate deliveries keep one business entry. PostgreSQL tests cover populated V2
+upgrades, tenant foreign keys and rollback when timeline or receipt writes fail.

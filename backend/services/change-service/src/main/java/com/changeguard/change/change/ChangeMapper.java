@@ -16,10 +16,11 @@ public class ChangeMapper {
                 change.getTargetBranch(), actor(change), change.getMergedAt(), change.getReceivedAt(), change.getCreatedAt());
     }
 
-    public com.changeguard.change.api.dto.ChangeTimelineResponse timeline(ChangeRecord change) {
-        var merge = new com.changeguard.change.api.dto.ChangeTimelineResponse.Entry(change.getSourceEventId(),
-                "PullRequestMerged", change.getMergedAt(), change.getCommitSha(), actor(change));
-        return new com.changeguard.change.api.dto.ChangeTimelineResponse(change.getId(), change.getOrganizationId(), java.util.List.of(merge));
+    public com.changeguard.change.api.dto.ChangeTimelineResponse timeline(ChangeRecord change, java.util.List<TimelineFact> facts) {
+        // The stored facts retain their original actors and event IDs as the projection evolves.
+        var entries = facts.stream().map(fact -> new com.changeguard.change.api.dto.ChangeTimelineResponse.Entry(
+                fact.eventId(), fact.type(), fact.occurredAt(), fact.commitSha(), fact.actor())).toList();
+        return new com.changeguard.change.api.dto.ChangeTimelineResponse(change.getId(), change.getOrganizationId(), entries);
     }
 
     private com.changeguard.change.event.Actor actor(ChangeRecord change) {

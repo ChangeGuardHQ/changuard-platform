@@ -12,13 +12,15 @@ public class ChangeApplicationService {
     private final ChangeMapper mapper;
     private final IdempotencyService idempotency;
     private final com.changeguard.change.observability.ProjectionMetrics metrics;
+    private final ChangeTimelineRepository timeline;
 
     public ChangeApplicationService(ChangeRecordRepository changes, ChangeMapper mapper, IdempotencyService idempotency,
-            com.changeguard.change.observability.ProjectionMetrics metrics) {
+            com.changeguard.change.observability.ProjectionMetrics metrics, ChangeTimelineRepository timeline) {
         this.changes = changes;
         this.mapper = mapper;
         this.idempotency = idempotency;
         this.metrics = metrics;
+        this.timeline = timeline;
     }
 
     @Transactional
@@ -37,6 +39,7 @@ public class ChangeApplicationService {
             throw new EventProcessingException("A merged pull request already has a different commit or merge time");
         }
         // A receipt failure rolls back a newly inserted projection as well; there is no pre-commit side effect.
+        timeline.appendMerge(stored.getId(), merge);
         idempotency.record(merge, stored.getId());
         metrics.committed(false);
         return stored;
@@ -46,6 +49,12 @@ public class ChangeApplicationService {
     public ChangeRecord find(String organization, java.util.UUID id) {
         return changes.findByOrganizationIdAndId(organization, id)
                 .orElseThrow(com.changeguard.change.exception.ChangeNotFoundException::new);
+    }
+
+    @Transactional(readOnly = true)
+    public com.changeguard.change.api.dto.ChangeTimelineResponse timeline(String organization, java.util.UUID id) {
+        // Return 404 for an unavailable scoped change, including when its timeline is empty.
+        return mapper.timeline(find(organization, id), timeline.find(organization, id));
     }
 
     @Transactional(readOnly = true)
