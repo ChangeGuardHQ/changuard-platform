@@ -56,6 +56,8 @@ Defaults live in [application.yml](src/main/resources/application.yml).
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker addresses. |
 | `KAFKA_CONSUMER_GROUP` | `change-service-group` | Durable projection consumer group. |
 | `CODE_EVENTS_TOPIC` | `changeguard.code-events.v1` | Connector's canonical Avro topic. |
+| `CODE_EVENTS_DLT_TOPIC` | `changeguard.change-service.code-events.v1.dlt` | Durable quarantine; must differ from source. |
+| `CODE_EVENTS_RETRIES` / `CODE_EVENTS_RETRY_INTERVAL` | `3` / `1s` | Bounded processing retry policy (0..10 retries, interval 0..10s). |
 | `SCHEMA_REGISTRY_URL` | `http://localhost:8083` | Writer schema lookup. |
 | `KAFKA_LISTENER_AUTO_STARTUP` | `true` | Set false to pause projection without changing offsets. |
 | `CHANGE_ORGANIZATION_ID` | empty | Trusted organization binding; Compose defaults to `local`. |
@@ -80,8 +82,11 @@ Kafka security properties can be supplied through standard Boot configuration.
   then returns only after database commit. Record acknowledgments and disabled
   auto-commit prevent a failed transaction from advancing the Kafka offset.
 - Invalid Avro, conflicting facts, unsupported event types/versions and database
-  failures stop the listener with the failed offset retained. Repair the cause,
-  then restart the listener/service. This release has no automatic DLT discard.
+  constraint violations go directly to the dedicated dead-letter topic. Temporary
+  database failures get three retries, one second apart, then quarantine. The
+  original offset advances only after the broker acknowledges the DLT write;
+  unavailable quarantine retains the offset for another attempt. DLT duplicates
+  remain possible after a crash between publish and offset commit.
   Implement new handlers before enabling opened-PR/commit producers on the topic.
 - Health GET endpoints are public and omit anonymous component details. Other
   reads require Basic authentication. HTTP sessions are disabled and CSRF remains
@@ -114,6 +119,37 @@ sh backend/services/change-service/mvnw -f backend/pom.xml -pl services/change-s
 Tests use disposable PostgreSQL, Kafka and Registry containers, plus an embedded
 broker for focused transport checks. They cover migrations, tenant isolation,
 concurrent deliveries, rollback, authorization, pagination, specific Avro decoding,
-real broker replay, and retained offsets for invalid records. No external provider
+real broker replay, lossless quarantine, and retained offsets when quarantine fails. No external provider
 credentials or existing databases are needed. Generated Avro sources remain in
 `target`; only reviewed schemas and source files are versioned.
+
+## Recover a quarantined event
+
+Provision `CODE_EVENTS_DLT_TOPIC` before deployment with broker replication,
+`min.insync.replicas`, retention, and ACLs matching the durability requirements
+of the source topic. Grant change-service write access and operators read access;
+production deployments must not depend on broker topic auto-creation. Original
+source topic, partition, offset and failure class are retained in Kafka headers.
+Original keys and Registry-framed values are preserved as bytes, including invalid
+Avro and tombstones. Retain the source schemas while replay remains possible.
+
+Repair the database, deploy the missing handler, or correct the original producer
+first. Invalid bytes cannot become valid through replay alone. Inspect one chosen
+DLT offset with the packaged command; the default is a dry run and prints no payload:
+
+```sh
+java -Dloader.main=com.changeguard.change.messaging.DeadLetterReplay \
+  -cp backend/services/change-service/target/change-service-0.0.1-SNAPSHOT.jar \
+  org.springframework.boot.loader.launch.PropertiesLauncher \
+  --bootstrap-servers=localhost:9092 \
+  --dead-letter-topic=changeguard.change-service.code-events.v1.dlt \
+  --source-topic=changeguard.code-events.v1 --partition=0 --offset=0
+```
+
+Repeat with `--execute` to publish that single record back to its original source
+partition. Optional `--client-properties=/private/path/kafka.properties` supplies
+TLS/SASL client configuration without embedding secrets in command arguments or
+version control. The tool verifies source provenance, strips stale failure headers,
+waits for the broker acknowledgment, and never changes DLT or projection consumer
+group offsets. Repeated execution is safe through transactional event receipts;
+quarantine records remain until retention expires, so record the replayed offset.

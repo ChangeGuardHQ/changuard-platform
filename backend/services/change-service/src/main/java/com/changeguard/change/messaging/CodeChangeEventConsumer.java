@@ -22,7 +22,7 @@ public class CodeChangeEventConsumer {
     @KafkaListener(id = "code-change-events", topics = "${changeguard.kafka.topics.code-events}",
             groupId = "${spring.kafka.consumer.group-id}")
     public void consume(ConsumerRecord<String, Object> record) {
-        // Unsupported facts and tombstones stop consumption rather than silently losing future lifecycle data.
+        // Unsupported facts and tombstones enter durable quarantine instead of being silently acknowledged.
         if (!(record.value() instanceof PullRequestMerged event)) {
             throw new EventProcessingException("This projection supports only PullRequestMerged V1 records");
         }
