@@ -65,6 +65,8 @@ class ChangeControllerTest {
     @Test
     void detailAndTimelineUseProviderOccurrenceTime() throws Exception {
         when(service.find("org-one", change.getId())).thenReturn(change);
+        when(service.timeline("org-one", change.getId())).thenReturn(new ChangeMapper().timeline(change,
+                List.of(new com.changeguard.change.change.TimelineFact("one", "PullRequestMerged", MERGED_AT, SHA, null))));
         mvc.perform(get("/api/v1/changes/" + change.getId()).param("organizationId", "org-one").with(user("reader")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.commitSha").value(SHA));
         mvc.perform(get("/api/v1/changes/" + change.getId() + "/timeline")

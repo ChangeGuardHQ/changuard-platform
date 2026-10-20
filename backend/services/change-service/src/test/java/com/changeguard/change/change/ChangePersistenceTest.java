@@ -28,7 +28,7 @@ class ChangePersistenceTest {
     @org.junit.jupiter.api.BeforeEach
     void isolateRowsFromOtherTestsSharingTheSpringContext() {
         // Application-service tests commit real transactions in this shared test database.
-        jdbc.sql("TRUNCATE change.processed_events, change.change_records").update();
+        jdbc.sql("TRUNCATE change.change_timeline, change.processed_events, change.change_records").update();
     }
 
     @Test

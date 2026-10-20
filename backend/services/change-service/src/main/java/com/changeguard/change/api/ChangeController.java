@@ -42,6 +42,7 @@ public class ChangeController {
     public ChangeTimelineResponse timeline(@PathVariable UUID id, @RequestParam String organizationId,
             Authentication authentication) {
         access.requireRead(authentication, organizationId);
-        return mapper.timeline(service.find(organizationId, id));
+        // The service reads the scoped projection and its stored facts within one read transaction.
+        return service.timeline(organizationId, id);
     }
 }
