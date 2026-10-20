@@ -52,7 +52,7 @@ class ChangeServiceApplicationTests {
             assertThat(connection.isValid(2)).isTrue();
         }
         assertThat(entityManagerFactory.isOpen()).isTrue();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(new JdbcTemplate(dataSource).queryForObject(
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'change' "

@@ -123,6 +123,8 @@ changeguard:
       code-events: ${CODE_EVENTS_TOPIC:changeguard.code-events.v1}
 
   github:
+    # Enable only after change-service supports all three code contracts and V4 migrations are deployed.
+    code-lifecycle-enabled: ${GITHUB_CODE_LIFECYCLE_ENABLED:false}
     # Shared secret used to validate incoming GitHub webhook signatures.
     # Set GITHUB_WEBHOOK_SECRET in deployment configuration instead of committing
     # a real secret to source control.

@@ -12,7 +12,7 @@ import org.springframework.util.Assert;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Publishes canonical merged change events to the configured code-events topic.
+ * Publishes canonical code lifecycle events to the configured code-events topic.
  * Repository IDs are used as keys so events for a repository share a partition.
  */
 @Component
@@ -59,13 +59,16 @@ public class CodeEventProducer {
     public CompletableFuture<SendResult<String, Object>> publish(OutboxEvent event, JsonNode payload) {
         Assert.notNull(event, "Outbox event is required");
         Assert.isTrue(payload != null && payload.isObject(), "Outbox payload must be a JSON object");
-        var record = avro.fromOutbox(payload);
-        Assert.isTrue(event.eventId().equals(record.getEventId())
-                && event.organizationId().equals(record.getOrganizationId())
-                && event.integrationId().equals(record.getSource().getIntegrationId())
+        var record = avro.fromAnyOutbox(payload);
+        var source = (com.changeguard.events.common.EventSource) record.get("source");
+        var body = (org.apache.avro.generic.IndexedRecord) record.get("payload");
+        String repository = (String) body.get(body.getSchema().getField("repositoryId").pos());
+        Assert.isTrue(event.eventId().equals(record.get("eventId"))
+                && event.organizationId().equals(record.get("organizationId"))
+                && event.integrationId().equals(source.getIntegrationId())
                 && event.eventType().equals(payload.path("eventType").asString())
-                && event.eventVersion() == record.getEventVersion()
-                && event.partitionKey().equals(record.getPayload().getRepositoryId()),
+                && Integer.valueOf(event.eventVersion()).equals(record.get("eventVersion"))
+                && event.partitionKey().equals(repository),
                 "Outbox metadata must match the canonical event");
         // Pre-contract rows recorded the JSON destination. Send their canonical
         // upcast to the configured Avro topic without rewriting the durable row.

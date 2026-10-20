@@ -21,4 +21,32 @@ public final class AvroFixtures {
                 fact.pullRequestNumber(), fact.title(), fact.commitSha(), fact.sourceBranch(), fact.targetBranch()));
         return event;
     }
+    public static com.changeguard.events.code.PullRequestOpened opened(String eventId, String organization) {
+        var event = new com.changeguard.events.code.PullRequestOpened();
+        envelope(event, eventId, organization);
+        event.setOccurredAt(MergeFixtures.MERGED_AT.minusSeconds(3600));
+        event.setPayload(new com.changeguard.events.code.PullRequestOpenedPayload(eventId, "repo-wire", "acme/service", 7,
+                "Original PR title", "b".repeat(40), "feature", "main"));
+        return event;
+    }
+
+    public static com.changeguard.events.code.CommitCreated commit(String eventId, String organization) {
+        var event = new com.changeguard.events.code.CommitCreated();
+        envelope(event, eventId, organization);
+        event.setOccurredAt(MergeFixtures.MERGED_AT.minusSeconds(7200));
+        event.setPayload(new com.changeguard.events.code.CommitCreatedPayload(eventId, "repo-wire", "acme/service",
+                MergeFixtures.SHA, "Commit message", "main"));
+        return event;
+    }
+
+    private static void envelope(org.apache.avro.specific.SpecificRecordBase record, String id, String organization) {
+        // Fixtures retain the canonical discriminator and generated specific record for each contract.
+        record.put("eventId", id);
+        record.put("eventType", record.getSchema().getName());
+        record.put("eventVersion", 1);
+        record.put("organizationId", organization);
+        record.put("receivedAt", MergeFixtures.MERGED_AT.plusSeconds(1));
+        record.put("source", new EventSource("github", "integration"));
+    }
+
 }

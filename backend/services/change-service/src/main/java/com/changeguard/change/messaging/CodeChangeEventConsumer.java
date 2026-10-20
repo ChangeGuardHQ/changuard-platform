@@ -22,14 +22,23 @@ public class CodeChangeEventConsumer {
     @KafkaListener(id = "code-change-events", topics = "${changeguard.kafka.topics.code-events}",
             groupId = "${spring.kafka.consumer.group-id}")
     public void consume(ConsumerRecord<String, Object> record) {
-        // Unsupported facts and tombstones enter durable quarantine instead of being silently acknowledged.
-        if (!(record.value() instanceof PullRequestMerged event)) {
-            throw new EventProcessingException("This projection supports only PullRequestMerged V1 records");
+        // Dispatch only reviewed specific contracts; all validation errors reach durable quarantine.
+        if (record.value() instanceof PullRequestMerged event) {
+            var merge = mapper.fromAvro(event);
+            requireRepositoryKey(record, merge.repositoryId());
+            service.ingest(merge);
+        } else if (record.value() instanceof com.changeguard.events.code.PullRequestOpened
+                || record.value() instanceof com.changeguard.events.code.CommitCreated) {
+            var fact = mapper.fromLifecycle((org.apache.avro.generic.IndexedRecord) record.value());
+            requireRepositoryKey(record, fact.repositoryId());
+            service.ingestLifecycle(fact);
+        } else {
+            throw new EventProcessingException("Unsupported code event contract or tombstone");
         }
-        var merge = mapper.fromAvro(event);
-        if (!merge.repositoryId().equals(record.key())) {
+    }
+
+    private void requireRepositoryKey(ConsumerRecord<String, Object> record, String repository) {
+        if (!repository.equals(record.key()))
             throw new EventProcessingException("Code event partition key must match its repository identity");
-        }
-        service.ingest(merge);
     }
 }

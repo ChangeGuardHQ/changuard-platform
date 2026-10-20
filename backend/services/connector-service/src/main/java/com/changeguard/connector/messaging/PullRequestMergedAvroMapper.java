@@ -13,8 +13,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Maps the durable JSON representation of a merged pull request event into the
- * shared Avro contract used for Kafka publication.
+ * Maps durable JSON outbox envelopes into the three shared code-event contracts.
+ * The merge-specific entry points retain support for historical stored envelopes.
  *
  * <p>
  * The mapper intentionally preserves the original stored event payload and only
@@ -87,4 +87,35 @@ public class PullRequestMergedAvroMapper {
         com.changeguard.events.CodeEventSchemas.validate(record);
         return record;
     }
+    /** Preserve the legacy merge upcast while dispatching newly supported durable lifecycle envelopes. */
+    public org.apache.avro.specific.SpecificRecordBase fromAnyOutbox(JsonNode payload) {
+        String type = payload == null ? "" : payload.path("eventType").asString();
+        if (!"PullRequestOpened".equals(type) && !"CommitCreated".equals(type)) return fromOutbox(payload);
+        var event = json.treeToValue(payload, com.changeguard.connector.event.CodeLifecycleEvent.class);
+        var p = event.payload();
+        org.apache.avro.specific.SpecificRecordBase record;
+        if ("PullRequestOpened".equals(type)) {
+            var opened = new com.changeguard.events.code.PullRequestOpened();
+            opened.setPayload(new com.changeguard.events.code.PullRequestOpenedPayload(p.deliveryId(), p.repositoryId(),
+                    p.repositoryFullName(), p.pullRequestNumber(), p.pullRequestTitle(), p.headCommitSha(), p.sourceBranch(), p.targetBranch()));
+            record = opened;
+        } else {
+            var commit = new com.changeguard.events.code.CommitCreated();
+            commit.setPayload(new com.changeguard.events.code.CommitCreatedPayload(p.deliveryId(), p.repositoryId(),
+                    p.repositoryFullName(), p.commitSha(), p.commitMessage(), p.branch()));
+            record = commit;
+        }
+        record.put("eventId", event.eventId());
+        record.put("eventType", event.eventType());
+        record.put("eventVersion", event.eventVersion());
+        record.put("organizationId", event.organizationId());
+        record.put("occurredAt", event.occurredAt());
+        record.put("receivedAt", event.receivedAt());
+        record.put("source", new EventSource(event.source().provider(), event.source().integrationId()));
+        record.put("actor", event.actor() == null ? null : new EventActor(ActorType.valueOf(event.actor().type().name()), event.actor().id()));
+        record.put("correlation", event.correlation() == null ? null : new EventCorrelation(event.correlation().traceId(), event.correlation().changeId()));
+        com.changeguard.events.CodeEventSchemas.validate(record);
+        return record;
+    }
+
 }

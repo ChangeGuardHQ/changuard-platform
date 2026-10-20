@@ -5,7 +5,7 @@ The [backend Maven reactor](pom.xml) contains the
 [Schema Registry runtime](docker/schema-registry/README.md), the
 [Connector Service](services/connector-service/pom.xml), and the
 [Change Service](services/change-service/README.md). Change Service provides
-merge projection, durable consumer deduplication, and organization-scoped read APIs. The connector targets Java 21 and
+code lifecycle projection, persisted timelines, durable quarantine/replay, and organization-scoped read APIs. The connector targets Java 21 and
 uses Spring Boot 4.0.8 with Spring MVC, Spring Security, Spring for Apache Kafka,
 Actuator, Spring JDBC, and Flyway. Its role is to receive external integration
 events and publish normalized ChangeGuard events through a durable outbox.
@@ -33,16 +33,18 @@ pending events, publishes to Kafka, and marks publication after acknowledgement.
 GitHub App installation, authorized repository selection, and durable revocation
 handling are implemented. The [connection README](services/connector-service/README.md)
 describes trusted ownership, callback state, API usage, and subsystem diagrams.
-Browser connection screens and downstream timeline consumers remain to be built.
+Browser connection screens remain to be built. Change-service's timeline consumer
+is implemented. Optional opened-PR and push adapters are enabled with
+`GITHUB_CODE_LIFECYCLE_ENABLED=true` after deploying the lifecycle consumer and V4 migrations.
 
 ## Connector system and subsystems
 
-**Status: implemented merged-PR intake and publication; other adapters are planned.**
+**Status: implemented merge intake and opt-in opened-PR/branch-push publication.**
 The HTTP path commits durable work independently of broker availability. The relay
 uses that committed work to publish registered Avro on `changeguard.code-events.v1`.
 The stored outbox envelope remains JSONB. The
 [platform service diagrams](../README.md#12-microservice-boundaries) describe the
-downstream Change, Correlation, Audit, Query/BFF, and V2 AI services, all still planned.
+implemented Change Service and planned Correlation, Audit, Query/BFF, and V2 AI services.
 
 ```mermaid
 flowchart TD
@@ -53,13 +55,13 @@ flowchart TD
     Security --> Controller["GitHubWebhookController: body<br/>and header validation"]
     Controller --> Processor["PersistentGitHubWebhookService"]
     Processor --> HMAC["Verify HMAC over exact bytes"]
-    HMAC --> Normalizer["Strict merged-PR normalization"]
+    HMAC --> Normalizer["Strict code-event normalization"]
     HMAC --> Lifecycle["Installation revocation / repository removal"]
     Lifecycle --> Access["Commit receipt and access change"]
     Access --> Database
     Access --> Accepted
     Normalizer --> Owner["Resolve stored installation owner"]
-    Owner --> Event["PullRequestMergedEvent"]
+    Owner --> Event["Canonical code event(s)"]
     Event --> Durable["Validate selected repository and<br/>commit receipt + event"]
     Durable --> Database[("PostgreSQL: receipts / outbox")]
     Durable --> Accepted["202 after database commit"]
@@ -77,7 +79,7 @@ flowchart TD
 | GitHub connection and ownership | Authorized administrator and provider API → verified installation and repository selection. | Implemented backend APIs; [connection/state/selection diagrams](services/connector-service/README.md) |
 | Installation lifecycle | Signed revocation/removal → committed receipt and access change. | Implemented; [lifecycle diagram](services/connector-service/README.md#webhook-processing-and-lifecycle-subsystem) |
 | Authenticity | Exact bytes and signature → HMAC validity. | Component implemented; [signature verification](#signature-verification) |
-| Provider normalization | Verified activity → merged-PR DTO, ignored activity, or payload error. | Merged PRs implemented; [normalization](#github-event-normalization) |
+| Provider normalization | Verified activity → code facts, ignored activity, or payload error. | Merge/opened/push implemented; [normalization](#github-event-normalization) |
 | Canonical contract | DTO and trusted context → version-one event with stable identity. | Implemented; [event factory](#canonical-merged-change-event), [shared schemas](event-contracts/README.md) |
 | Schema Registry | Reviewed schemas → compatibility policy and stable writer-schema IDs. | Implemented; [Registry](docker/schema-registry/README.md) |
 | Kafka transport | Canonical event → repository-keyed Avro record and acknowledgement future. | Implemented; [publishing](#code-event-publishing) |

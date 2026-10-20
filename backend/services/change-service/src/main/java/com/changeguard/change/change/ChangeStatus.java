@@ -1,6 +1,6 @@
 package com.changeguard.change.change;
 
-/** States backed by implemented lifecycle facts; build/deployment states come later. */
+/** Only observed states are represented; a late opening never reverses MERGED. */
 public enum ChangeStatus {
-    MERGED
+    OPEN, MERGED, COMMITTED
 }

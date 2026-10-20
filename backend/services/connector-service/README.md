@@ -3,7 +3,8 @@
 **Status: implemented backend APIs.** A trusted organization administrator can
 start a GitHub App installation, complete its callback, discover repositories,
 replace the selected repository set, and disconnect a repository or installation.
-Signed merged pull requests enter the existing PostgreSQL receipt/outbox flow.
+Signed merged pull requests enter the PostgreSQL receipt/outbox flow. Optional
+opened-PR and branch-push adapters use the same trusted ownership and outbox boundary.
 Signed installation revocation, suspension, and repository-removal deliveries
 update access in the same transaction as their receipt. Browser connection screens
 and OIDC/JWT remain planned.
@@ -122,7 +123,10 @@ Restoring a disconnected connection requires explicit repository selection again
 
 `POST /api/v1/integrations/github/webhook` preserves exact request bytes and verifies
 `X-Hub-Signature-256` before parsing or database lookup. Supported code activity is
-`pull_request` with `action=closed` and `merged=true`. Strict normalization requires
+`pull_request` with `action=closed` and `merged=true`. Setting
+`GITHUB_CODE_LIFECYCLE_ENABLED=true` additionally accepts `pull_request/opened` and
+non-deleted `refs/heads/*` pushes. Deploy the matching change-service consumer and
+V4 migrations before enabling that flag. Strict normalization requires
 installation and repository-owner IDs. Internal organization ownership comes from
 the stored installation; the intake transaction checks its active status, selected
 repository, and verified numeric GitHub account before writing receipt and outbox.
@@ -138,9 +142,9 @@ flowchart TD
     Raw["Raw delivery + required headers"] --> HMAC["Verify exact-byte HMAC-SHA256"]
     HMAC -->|"invalid"| Unauthorized["401; no parsing or writes"]
     HMAC --> Normalize["Strict provider normalization"]
-    Normalize --> Merge["Merged PR: stored owner and<br/>selected repository checks"]
+    Normalize --> Merge["Code fact: stored owner and<br/>selected repository checks"]
     Normalize --> Lifecycle["Supported lifecycle: stored owner<br/>and affected access scope"]
-    Merge --> CodeTx["Transaction: shared receipt ledger<br/>+ canonical PullRequestMerged outbox"]
+    Merge --> CodeTx["Transaction: shared receipt ledger<br/>+ canonical code-event outbox rows"]
     Lifecycle --> AccessTx["Transaction: shared receipt ledger<br/>+ revocation / repository removal"]
     CodeTx --> Ack["202 only after commit; durable<br/>redelivery creates no second record"]
     AccessTx --> Ack
@@ -156,7 +160,19 @@ outbox event. V4 adds this shape and an integration ownership FK without changin
 the released V1–V3 migrations. Unknown or inactive merged-delivery ownership returns
 `403`; malformed supported payloads return `400`; durable write/commit failures return
 `503`. The independent relay continues publishing previously accepted events after
-connection disconnection. Opened-PR and push adapters remain planned.
+connection disconnection. An opening uses `pull_request.created_at` and its head
+SHA. A push creates one `CommitCreated` outbox event per included SHA using the
+commit timestamp; the pusher is recorded as an UNKNOWN actor, not assumed to be
+the commit author. Event IDs include delivery and SHA, so commit ordering and
+receipt-time changes do not alter identities. One receipt protects the entire
+push batch; a failed write rolls back every event. Duplicate SHAs with conflicting
+facts are rejected. Deleted branches, tag pushes and empty commit arrays create no
+commit facts. The adapter does not backfill omitted provider history.
+
+Keep `GITHUB_CODE_LIFECYCLE_ENABLED=false` until the consumer rollout is complete.
+Subscribe the GitHub App to **Push** as well as **Pull request**, and grant Contents
+read permission for push deliveries. The adapters process up to 2048 commits present
+in a push payload; they do not fetch additional commits from GitHub.
 
 ## API and runtime configuration
 
@@ -205,3 +221,6 @@ authorization, single-use and concurrent callbacks, provider ownership and pagin
 repository selection, CSRF cookies, concurrent lifecycle changes, atomic rollback,
 delivery deduplication, and V1–V3 migration upgrades. A real GitHub App sandbox is
 deployment validation after supplying credentials; it is not required by CI.
+
+GitHub documents push permission requirements and the payload's commit limit in
+[Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push).

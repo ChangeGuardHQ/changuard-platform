@@ -54,3 +54,14 @@ as projection and event receipts. V3 backfills existing merge records using thei
 original event IDs, actors and occurrence times. Scoped reads return stored facts;
 duplicate deliveries keep one business entry. PostgreSQL tests cover populated V2
 upgrades, tenant foreign keys and rollback when timeline or receipt writes fail.
+
+## Follow-up PR 4: code lifecycle
+
+`feature/change-code-lifecycle` supports opened PRs and standalone commits using
+the existing released Avro schemas. V4 preserves existing UUIDs and adds explicit
+PR/commit kinds and occurrence ordering. Row locks serialize PR transitions;
+late opening facts never downgrade a merge. Commits have independent natural keys
+and are not linked to PRs using ambiguous SHA/branch guesses. The connector adds
+HMAC-verified opened/push adapters and atomically persists each push batch. Enable
+its producer flag only after deploying the consumer. See [PR delivery](PR_DELIVERY.md)
+for local branches, review bases, validation and push commands.

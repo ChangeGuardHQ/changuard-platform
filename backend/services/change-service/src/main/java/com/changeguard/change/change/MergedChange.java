@@ -18,7 +18,7 @@ import org.springframework.util.Assert;
 public record MergedChange(String eventId, String organizationId, EventSource source,
         String deliveryId, String repositoryId, String repositoryFullName, int pullRequestNumber,
         String title, String commitSha, String sourceBranch, String targetBranch, Actor actor,
-        Instant mergedAt, Instant receivedAt, String traceId, String upstreamChangeId) {
+        Instant mergedAt, Instant receivedAt, String traceId, String upstreamChangeId) implements ReceiptEvent {
 
     public MergedChange {
         for (String text : Arrays.asList(eventId, organizationId, deliveryId, repositoryId,

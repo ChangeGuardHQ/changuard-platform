@@ -1,9 +1,10 @@
 # Change Service
 
-Projects the connector's canonical `PullRequestMerged` V1 Avro events into
-PostgreSQL merge records and organization-scoped read APIs. The implementation
-is split into four reviewable [delivery steps](BUSINESS_LOGIC.md). Build,
-deployment, opened-PR and standalone-commit projections remain later work.
+Projects the canonical `PullRequestOpened`, `PullRequestMerged` and `CommitCreated`
+V1 Avro events into PostgreSQL changes, durable timelines and organization-scoped
+read APIs. The implementation and follow-up PRs are described in the
+[delivery steps](BUSINESS_LOGIC.md). Build/deployment correlation and outgoing
+derived events remain later work.
 
 ## Run with Docker Compose
 
@@ -69,16 +70,24 @@ Kafka security properties can be supplied through standard Boot configuration.
 
 ## Projection and replay semantics
 
-- A change is unique by organization, provider, repository ID, and PR number.
-  Multiple deliveries or integrations reporting the same merge retain one UUID.
+- A pull-request change is unique by organization, provider, repository ID and PR
+  number. A standalone commit is unique by organization/provider/repository/SHA.
+  Multiple deliveries or integrations retain one UUID per business identity.
 - The change and event receipt commit in one database transaction. Event IDs are
   scoped by organization; a fingerprint rejects reuse with different facts.
   The change, business timeline fact and receipt commit together; any failure
   rolls back all three. V3 backfills existing merges without changing their IDs.
-- Merge commit and provider occurrence time are immutable. The first accepted
-  title, repository name and actor metadata remain attached to the merge.
-  Redelivery receipt time does not alter identity. Correlation IDs never select
-  or overwrite this service's change ID.
+- A PR progresses from OPEN to MERGED using the same UUID. A merge may arrive
+  first; a later opening adds its occurrence and head SHA without reversing the
+  merge state, merge attribution, or activity time. Contradictory opening/merge
+  facts are rejected. Provider opening time cannot follow provider merge time.
+- A commit has kind COMMIT and status COMMITTED; it never claims a PR, even when
+  its SHA matches a PR head or merge commit. Branch equality and upstream change
+  IDs are insufficient linkage evidence. Merge and commit occurrence times are
+  immutable. Redelivery receipt time does not alter event identity.
+- A merge promotes the PR projection's title, merge SHA and actor; its opening
+  keeps its own immutable timeline fact. Duplicate facts retain the first accepted
+  metadata. Correlation IDs never select or overwrite this service's change ID.
 - The listener validates the shared contract and repository partition key,
   then returns only after database commit. Record acknowledgments and disabled
   auto-commit prevent a failed transaction from advancing the Kafka offset.
@@ -88,7 +97,7 @@ Kafka security properties can be supplied through standard Boot configuration.
   original offset advances only after the broker acknowledges the DLT write;
   unavailable quarantine retains the offset for another attempt. DLT duplicates
   remain possible after a crash between publish and offset commit.
-  Implement new handlers before enabling opened-PR/commit producers on the topic.
+  Unknown future contracts remain quarantined until a matching handler is deployed.
 - Health GET endpoints are public and omit anonymous component details. Other
   reads require Basic authentication. HTTP sessions are disabled and CSRF remains
   enabled. Readiness checks PostgreSQL, independently of asynchronous Kafka progress.
@@ -97,7 +106,8 @@ Kafka security properties can be supplied through standard Boot configuration.
 
 - `GET /api/v1/changes?organizationId=org-one&page=0&size=20` lists records with
   optional `repositoryId`. Size is 1..100 and page is 0..10000. Sort order is
-  merge time descending, then UUID ascending for a stable tie-breaker.
+  activity time descending, then UUID ascending for a stable tie-breaker. Activity
+  time is merge time for MERGED, opening time for OPEN, and commit time for COMMITTED.
 - `GET /api/v1/changes/{id}?organizationId=org-one` returns a scoped change.
 - `GET /api/v1/changes/{id}/timeline?organizationId=org-one` returns stored lifecycle
   facts ordered by provider occurrence time, type and original event ID. Each fact
@@ -105,7 +115,11 @@ Kafka security properties can be supplied through standard Boot configuration.
 
 Missing authentication returns 401, an unbound organization returns 403, and
 an ID outside the authorized organization returns 404. Invalid query values
-return 400. There is no HTTP mutation endpoint for provider-owned merge facts.
+return 400. There is no HTTP mutation endpoint for provider-owned facts. `kind` distinguishes
+PULL_REQUEST and COMMIT. `pullRequestNumber`, `openedAt`, `headCommitSha`, `mergedAt`
+and branch fields are nullable when that fact does not apply or has not been
+observed. `activityAt` is always present. A PR merge never invents an opening time
+or head SHA; the opening contract supplies those separately.
 
 ## Verify
 
@@ -185,3 +199,21 @@ consumers and increasing lag. Application counters reset on process restart;
 Prometheus rates must account for resets. Labels never contain organization IDs,
 repository IDs, event IDs or payloads. Database rollback does not increment the
 successful-ingestion counter.
+
+## Enable additional GitHub producers
+
+Deploy this consumer and allow Flyway V4 to migrate existing PR rows first; UUIDs,
+receipts and merge timelines are preserved. Then enable
+`GITHUB_CODE_LIFECYCLE_ENABLED=true` in the connector and subscribe the GitHub App
+to **Pull request** and **Push** events (with repository contents read permission
+for push delivery). Existing selected-repository and trusted-ownership checks apply
+to both new adapters. A push stores one receipt and one deterministic event per
+included commit; the complete batch rolls back if any outbox write fails.
+
+The connector ignores deleted-branch and tag pushes and does not backfill provider
+history. A push payload may include at most 2048 commits; only those delivered
+commits are represented. Existing historical code can be replayed through the
+consumer after its contracts and provider facts are available.
+
+GitHub documents push permission requirements and the payload's commit limit in
+[Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push).

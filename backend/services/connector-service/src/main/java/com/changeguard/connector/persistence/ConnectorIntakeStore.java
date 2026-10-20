@@ -3,6 +3,9 @@ package com.changeguard.connector.persistence;
 import java.time.ZoneOffset;
 import java.sql.Types;
 import java.util.UUID;
+import java.util.List;
+import java.time.Instant;
+import com.changeguard.connector.event.CodeLifecycleEvent;
 
 import com.changeguard.connector.event.PullRequestMergedEvent;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,7 +16,7 @@ import org.springframework.util.Assert;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Persists a verified merge receipt and canonical outbox record in a single
+ * Persists a verified delivery receipt and its canonical outbox records in a single
  * PostgreSQL transaction.
  */
 @Service
@@ -58,6 +61,36 @@ public class ConnectorIntakeStore {
         String integrationId = event.source().integrationId();
         String repositoryId = event.payload().repositoryId();
 
+        return persist(organizationId, integrationId, repositoryId, event.payload().deliveryId(), event.receivedAt(),
+                "pull_request", repositoryOwnerId, List.of(new StoredEvent(event.eventId(), event.eventType(),
+                        event.eventVersion(), json.writeValueAsString(event))));
+    }
+
+    /** One push receipt protects all of its per-commit outbox rows in the same revocation-safe transaction. */
+    @Transactional
+    public boolean acceptLifecycle(List<CodeLifecycleEvent> events, Long repositoryOwnerId) {
+        Assert.notEmpty(events, "Lifecycle events are required");
+        Assert.isTrue(events.size() <= 2048, "A delivery contains at most 2048 commits");
+        var first = events.getFirst();
+        String organizationId = first.organizationId();
+        String integrationId = first.source().integrationId();
+        String repositoryId = first.payload().repositoryId();
+        var rows = events.stream().map(event -> {
+            Assert.isTrue(organizationId.equals(event.organizationId()) && integrationId.equals(event.source().integrationId())
+                    && repositoryId.equals(event.payload().repositoryId())
+                    && first.payload().deliveryId().equals(event.payload().deliveryId())
+                    && first.eventType().equals(event.eventType()) && first.receivedAt().equals(event.receivedAt())
+                    && "github".equals(event.source().provider()), "One receipt must contain one trusted delivery scope");
+            return new StoredEvent(event.eventId(), event.eventType(), event.eventVersion(), json.writeValueAsString(event));
+        }).toList();
+        return persist(organizationId, integrationId, repositoryId, first.payload().deliveryId(), first.receivedAt(),
+                "CommitCreated".equals(first.eventType()) ? "push" : "pull_request", repositoryOwnerId, rows);
+    }
+
+    private record StoredEvent(String id, String type, int version, String payload) { }
+
+    private boolean persist(String organizationId, String integrationId, String repositoryId, String deliveryId,
+            Instant receivedAt, String providerType, Long repositoryOwnerId, List<StoredEvent> events) {
         // Shared row locks prevent disconnect/revocation from racing with this acceptance transaction.
         boolean active = jdbc.sql("""
                 SELECT 1 FROM connector.connected_repositories r
@@ -81,29 +114,31 @@ public class ConnectorIntakeStore {
         int inserted = jdbc.sql("""
                 INSERT INTO connector.webhook_receipts
                     (id, organization_id, integration_id, repository_id, delivery_id, provider_event_type, received_at)
-                VALUES (:receipt, :organization, :integration, :repository, :delivery, 'pull_request', :received)
+                VALUES (:receipt, :organization, :integration, :repository, :delivery, :providerType, :received)
                 ON CONFLICT DO NOTHING
                 """)
                 .param("receipt", receiptId).param("organization", organizationId)
                 .param("integration", integrationId).param("repository", repositoryId)
-                .param("delivery", event.payload().deliveryId())
-                .param("received", event.receivedAt().atOffset(ZoneOffset.UTC)).update();
+                .param("delivery", deliveryId).param("providerType", providerType)
+                .param("received", receivedAt.atOffset(ZoneOffset.UTC)).update();
         if (inserted == 0) {
             return false;
         }
 
-        jdbc.sql("""
+        for (var event : events) {
+            jdbc.sql("""
                 INSERT INTO connector.outbox_events
                     (event_id, receipt_id, organization_id, integration_id, event_type, event_version,
                      topic, partition_key, payload)
                 VALUES (:event, :receipt, :organization, :integration, :type, :version,
                         :topic, :key, CAST(:payload AS jsonb))
                 """)
-                .param("event", event.eventId()).param("receipt", receiptId)
+                .param("event", event.id()).param("receipt", receiptId)
                 .param("organization", organizationId).param("integration", integrationId)
-                .param("type", event.eventType()).param("version", event.eventVersion())
+                .param("type", event.type()).param("version", event.version())
                 .param("topic", codeEventsTopic).param("key", repositoryId)
-                .param("payload", json.writeValueAsString(event)).update();
+                .param("payload", event.payload()).update();
+        }
         return true;
     }
 }
