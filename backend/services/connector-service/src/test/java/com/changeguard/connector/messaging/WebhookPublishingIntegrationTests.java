@@ -45,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {"changeguard.github.webhook-secret=" + SECRET,
         "changeguard.kafka.topics.code-events=changeguard.integration.code-events.v1",
         "spring.kafka.producer.compression-type=lz4",
-        "changeguard.outbox.poll-interval=100ms"})
+        "changeguard.outbox.poll-interval=100ms", "changeguard.github.code-lifecycle-enabled=true"})
 @AutoConfigureMockMvc
 @Import(PostgresTestConfiguration.class)
 @Testcontainers
@@ -138,6 +138,49 @@ class WebhookPublishingIntegrationTests {
                             .query(String.class).single())));
             assertThat(jdbc.sql("SELECT count(*) FROM connector.webhook_receipts").query(Integer.class).single())
                     .isEqualTo(1);
+            assertThat(consumer.poll(Duration.ofSeconds(1)).isEmpty()).isTrue();
+        }
+    }
+
+    @Test
+    void signedOpeningAndPushReachTheBrokerAsAllThreeIndependentlyRegisteredFacts() throws Exception {
+        var properties = KafkaTestUtils.consumerProps(KAFKA.getBootstrapServers(), "lifecycle-test-" + UUID.randomUUID(), false);
+        properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class);
+        properties.put("schema.registry.url", registryUrl());
+        properties.put("specific.avro.reader", true);
+        var consumers = new DefaultKafkaConsumerFactory<String, org.apache.avro.specific.SpecificRecordBase>(properties);
+        try (var consumer = consumers.createConsumer()) {
+            var partition = new org.apache.kafka.common.TopicPartition(TOPIC, 0);
+            consumer.assign(java.util.List.of(partition));
+            consumer.seekToEnd(java.util.List.of(partition));
+            consumer.position(partition);
+            for (String type : java.util.List.of("pull_request", "push")) {
+                byte[] payload = type.equals("push") ? com.changeguard.connector.LifecycleWebhookFixtures.push()
+                        : com.changeguard.connector.LifecycleWebhookFixtures.opened();
+                for (int duplicate = 0; duplicate < 2; duplicate++) {
+                    mvc.perform(post("/api/v1/integrations/github/webhook").contentType(MediaType.APPLICATION_JSON)
+                            .header("X-GitHub-Event", type).header("X-GitHub-Delivery", "lifecycle-" + type)
+                            .header("X-Hub-Signature-256", signature(payload)).content(payload))
+                            .andExpect(status().isAccepted());
+                }
+            }
+            var facts = new java.util.ArrayList<org.apache.avro.specific.SpecificRecordBase>();
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+                consumer.poll(Duration.ofMillis(200)).forEach(record -> {
+                    assertThat(record.key()).isEqualTo("12345");
+                    CodeEventSchemas.validate(record.value());
+                    facts.add(record.value());
+                });
+                assertThat(facts).hasSize(3);
+            });
+            assertThat(facts).extracting(fact -> fact.get("eventType"))
+                    .containsExactlyInAnyOrder("PullRequestOpened", "CommitCreated", "CommitCreated");
+            assertThat(facts).extracting(fact -> fact.get("eventId")).doesNotHaveDuplicates();
+            assertThat(facts).allSatisfy(fact -> assertThat(fact.get("organizationId")).isEqualTo("org-integration"));
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(jdbc.sql("SELECT count(*) FROM connector.outbox_events WHERE status = 'PUBLISHED'")
+                            .query(Integer.class).single()).isEqualTo(3));
             assertThat(consumer.poll(Duration.ofSeconds(1)).isEmpty()).isTrue();
         }
     }

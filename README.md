@@ -525,15 +525,15 @@ relay publishes registered Avro to Kafka after leasing durable work. The UI has 
 | System or subsystem | Status | Diagram and responsibility |
 | --- | --- | --- |
 | Frontend composition, routes, state, and API transport | Partial | [Frontend](#73-frontend-system), [subsystem diagrams](frontend/README.md#system-and-subsystems) |
-| Connector merged-PR intake, signature verification, normalization, envelope, and relay | Implemented; other adapters planned | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
+| Connector code intake, signature verification, normalization, envelope, and relay | Merge plus opt-in opened-PR/push adapters implemented | [Connector](#121-connector-service), [component diagrams](backend/README.md#connector-system-and-subsystems) |
 | GitHub installation and repository selection | Backend implemented; browser UI planned | [GitHub connection](#1211-github-connection-and-repository-selection), [ownership and setup diagrams](backend/services/connector-service/README.md) |
 | CI/build, deployment, and runtime ingestion | Planned V1 | [Connector adapters](#1212-ci-and-build-ingestion) |
-| Change records and lifecycle timelines | Merged-PR projection and read APIs implemented; build/deployment linking planned | [Change Service](#122-change-service) |
+| Change records and lifecycle timelines | PR/commit projections, stored timelines, recovery and read APIs implemented; build/deployment linking planned | [Change Service](#122-change-service) |
 | Impact detection and baseline windows | Planned V1 | [Correlation Service](#123-correlation-service), [engine](#17-correlation-engine) |
 | Immutable audit history and actor attribution | Planned V1 | [Audit Service](#124-audit-service), [AI audit model](#18-ai-audit-model) |
 | API Gateway and Query/BFF | Planned V1 | [Read aggregation](#125-querybff-service), [API routing](#19-api-design) |
 | Kafka broker, partitions, and consumer groups | Partial | [Kafka](#10-kafka-design), [image build and smoke test](backend/docker/kafka/README.md) |
-| Canonical contracts and Schema Registry | Code schemas and merged-PR Avro publication implemented; other adapters planned | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
+| Canonical contracts and Schema Registry | All three code contracts and Avro publication implemented; opened/push producers opt in | [Envelope](#11-canonical-event-model), [schema evolution](#106-schema-registry) |
 | PostgreSQL ownership and Redis | Connector persistence implemented; Redis planned | [Database](#13-database-strategy), [connector schema](backend/README.md#connector-persistence), [PostgreSQL runtime](backend/docker/postgres/README.md), [cache](#14-redis-strategy) |
 | Transactional outbox, deduplication, and failure recovery | Connector relay and idempotent merge consumer implemented; other consumers planned | [Outbox](#15-transactional-outbox), [idempotency](#16-idempotency-and-delivery-semantics), [retries](#22-reliability-and-resilience) |
 | Authentication, authorization, and secrets | Partial | [Security](#20-security), [current connector rules](backend/README.md#security-and-observability) |
@@ -669,7 +669,7 @@ status
 
 # 9. Event-Driven Architecture
 
-**Status: merged-PR production and projection implemented; other lifecycle processing planned.**
+**Status: code lifecycle production and projection implemented; build/deployment processing planned.**
 REST serves interactive queries and configuration commands. Kafka carries durable
 lifecycle facts so each consumer can update its own projection at its own pace.
 An accepted ingestion request and a queryable timeline are separate milestones;
@@ -861,8 +861,8 @@ Audit and lifecycle history may require significantly longer retention than tran
 ## 10.6 Schema Registry
 
 **Status: implemented for the V1 code-event catalog.** The shared module defines
-`PullRequestOpened`, `PullRequestMerged`, and `CommitCreated`; the merged-PR
-pipeline publishes registered Avro. Connector startup registers reviewed schemas
+`PullRequestOpened`, `PullRequestMerged`, and `CommitCreated`; all three code
+pipelines publish registered Avro, with opened/push adapters enabled explicitly. Connector startup registers reviewed schemas
 under `TopicRecordNameStrategy` subjects with `BACKWARD_TRANSITIVE` compatibility.
 Serializers use exact schema lookup with automatic registration disabled.
 See [shared contracts and evolution rules](backend/event-contracts/README.md) and
@@ -899,11 +899,12 @@ Goals:
 
 # 11. Canonical Event Model
 
-**Status: implemented shared V1 code contracts and merged-PR adapter.**
+**Status: implemented shared V1 code contracts and merge/opened/push adapters.**
 `PullRequestMerged` is the finalized event name, with a stable event ID, trusted
 organization/integration context, UTC microsecond timestamps, and typed merge
-payload. The shared Avro schemas cover all three code-event types; opened-PR and
-commit ingestion remain planned. The connector stores JSONB and publishes binary
+payload. The shared Avro schemas cover all three code-event types. Opened-PR and
+push adapters are enabled with `GITHUB_CODE_LIFECYCLE_ENABLED=true` after deploying
+the lifecycle consumer and its migrations. The connector stores JSONB and publishes binary
 Avro on `changeguard.code-events.v1`. Historical `CodeChangeMerged` outbox rows
 are upcast without changing their stored envelope or identity; existing JSON
 history remains on the earlier topic. See [the cutover guide](backend/event-contracts/README.md#legacy-event-cutover-subsystem).
@@ -1156,10 +1157,12 @@ flowchart LR
 
 ## 12.2 Change Service
 
-**Status: merged-PR projection implemented; build/deployment linking planned.**
-The service consumes the shared `PullRequestMerged` V1 Avro contract, commits one
-change per organization/provider/repository/PR with durable event receipts, and
-serves authenticated organization-scoped list, detail and timeline reads. See its
+**Status: PR/commit lifecycle projection implemented; build/deployment linking planned.**
+The service consumes the three shared V1 code contracts, commits organization-scoped
+changes, timeline facts and durable event receipts together, and serves authenticated
+list, detail and timeline reads. PRs progress from OPEN to MERGED; late opening facts
+do not downgrade merges. Standalone commits retain independent identities. Bounded
+retries, byte-preserving quarantine/replay, and projection health/metrics are implemented. See its
 [delivery steps and behavior](backend/services/change-service/BUSINESS_LOGIC.md)
 and [service guide](backend/services/change-service/README.md). The diagram below
 shows the full lifecycle target, including outgoing domain events still to come.
@@ -1527,12 +1530,12 @@ processed_at
 
 Before processing:
 
-**Status: planned V1 durable delivery semantics.** Use a unique consumer/event ID
-record and commit it atomically with business effects. Commit the Kafka offset
+**Status: implemented for change-service; other consumers remain planned.** Store
+a unique scoped event receipt atomically with business effects. Commit the Kafka offset
 after the database transaction succeeds. A crash before offset commit may cause
 redelivery, which the stored ID safely absorbs. Stable IDs exist in the current
 event factory. Durable connector receipts now deduplicate by integration and
-delivery ID, including concurrent intake. Downstream consumer deduplication is planned.
+delivery ID, including concurrent intake. Change-service deduplicates event IDs and business facts transactionally.
 
 ```mermaid
 flowchart TD
@@ -1943,13 +1946,14 @@ Not every failure should be retried forever.
 
 Example:
 
-**Status: planned V1 recovery workflow.** Classify errors before retrying. Retry
-transient failures with bounded backoff; retain permanent or exhausted failures
-for inspection and controlled replay. Preserve event identity on replay so the
+**Status: implemented for change-service; broader recovery workflows remain planned.**
+Change-service retries temporary failures with bounded backoff and publishes permanent
+or exhausted failures to a durable DLT. Source offsets advance only after recovery
+publication is acknowledged; a single-offset replay tool preserves original bytes. Preserve event identity on replay so the
 same idempotency checks protect business effects. The connector already persists
 outbox retries with capped backoff and recovers expired worker leases. It retries
-pending publication until acknowledgement; retry budgets, application retry topics,
-dead-letter handling, and circuit breakers remain planned.
+pending publication until acknowledgement. Retry topics and circuit breakers remain
+planned; change-service's recovery guide documents its implemented DLT and replay flow.
 
 ```mermaid
 flowchart TD
@@ -2452,9 +2456,9 @@ Completion criteria:
 ## Phase 2 — Canonical event system
 
 The shared code-event envelope, generated Avro records, Registry integration,
-versioning rules, and merged-PR producer are implemented. Real wire tests verify
-typed consumption and compatibility rejection. Service consumers and their
-durable event deduplication remain to be built.
+versioning rules, and code lifecycle producers are implemented. Real wire tests
+verify typed consumption, compatibility rejection, replay and transactional
+change-service projections. Opened/push producers use an explicit rollout flag.
 
 Build:
 

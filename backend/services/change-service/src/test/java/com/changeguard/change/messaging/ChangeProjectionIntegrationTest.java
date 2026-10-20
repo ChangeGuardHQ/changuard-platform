@@ -143,6 +143,30 @@ class ChangeProjectionIntegrationTest {
             assertThat(container.isRunning()).isTrue();
             assertThat(changes.count()).isEqualTo(1);
             assertThat(receiptCount()).isEqualTo(1);
+
+            // Late opening and duplicate standalone commit deliveries use the same topic and repository key.
+            for (var lifecycle : List.of(AvroFixtures.opened("wire-open", "org-wire"),
+                    AvroFixtures.commit("wire-commit", "org-wire"), AvroFixtures.commit("wire-commit", "org-wire"))) {
+                producer.send(new ProducerRecord<>(TOPIC, "repo-wire", lifecycle)).get(10, TimeUnit.SECONDS);
+            }
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+                assertThat(committedOffset(admin, partition)).isEqualTo(6);
+                assertThat(changes.count()).isEqualTo(2);
+                assertThat(receiptCount()).isEqualTo(3);
+            });
+            mvc.perform(get("/api/v1/changes/" + change.getId() + "/timeline").param("organizationId", "org-wire")
+                            .with(httpBasic("infrastructure-test", "test-password")))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.entries.length()").value(2))
+                    .andExpect(jsonPath("$.entries[0].type").value("PullRequestOpened"))
+                    .andExpect(jsonPath("$.entries[1].type").value("PullRequestMerged"));
+            var commit = changes.findByOrganizationIdAndProviderAndRepositoryIdAndKindAndCommitSha(
+                    "org-wire", "github", "repo-wire", com.changeguard.change.change.ChangeKind.COMMIT,
+                    com.changeguard.change.MergeFixtures.SHA).orElseThrow();
+            mvc.perform(get("/api/v1/changes/" + commit.getId()).param("organizationId", "org-wire")
+                            .with(httpBasic("infrastructure-test", "test-password")))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.kind").value("COMMIT"))
+                    .andExpect(jsonPath("$.status").value("COMMITTED"))
+                    .andExpect(jsonPath("$.pullRequestNumber").isEmpty()).andExpect(jsonPath("$.mergedAt").isEmpty());
         }
     }
 

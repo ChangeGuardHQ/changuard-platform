@@ -32,15 +32,42 @@ public class ChangeApplicationService {
         }
         // The natural-key constraint also deduplicates distinct deliveries/integrations of one PR merge.
         changes.insertIfAbsent(mapper.newRecord(merge));
-        var stored = changes.findByOrganizationIdAndProviderAndRepositoryIdAndPullRequestNumber(
+        var stored = changes.lockPullRequest(
                 merge.organizationId(), merge.source().provider(), merge.repositoryId(), merge.pullRequestNumber())
                 .orElseThrow();
-        if (!stored.getCommitSha().equals(merge.commitSha()) || !stored.getMergedAt().equals(merge.mergedAt())) {
-            throw new EventProcessingException("A merged pull request already has a different commit or merge time");
-        }
+        stored.acceptMerge(merge);
         // A receipt failure rolls back a newly inserted projection as well; there is no pre-commit side effect.
         timeline.appendMerge(stored.getId(), merge);
         idempotency.record(merge, stored.getId());
+        metrics.committed(false);
+        return stored;
+    }
+
+    @Transactional
+    public ChangeRecord ingestLifecycle(LifecycleChange fact) {
+        var receipt = idempotency.previouslyProcessed(fact);
+        if (receipt.isPresent()) {
+            metrics.committed(true);
+            return changes.findByOrganizationIdAndId(fact.organizationId(), receipt.get().changeId()).orElseThrow();
+        }
+        ChangeRecord stored;
+        if (fact.type() == LifecycleChange.Type.PullRequestOpened) {
+            changes.insertIfAbsent(new ChangeRecord(fact));
+            stored = changes.lockPullRequest(fact.organizationId(), fact.source().provider(),
+                    fact.repositoryId(), fact.pullRequestNumber()).orElseThrow();
+            stored.acceptOpening(fact);
+        } else {
+            changes.insertCommitIfAbsent(new ChangeRecord(fact));
+            stored = changes.findByOrganizationIdAndProviderAndRepositoryIdAndKindAndCommitSha(
+                    fact.organizationId(), fact.source().provider(), fact.repositoryId(), ChangeKind.COMMIT, fact.commitSha())
+                    .orElseThrow();
+            if (!stored.getActivityAt().equals(fact.occurredAt()))
+                throw new EventProcessingException("Commit already has a different occurrence time");
+        }
+        timeline.append(fact.organizationId(), stored.getId(), fact.type() == LifecycleChange.Type.PullRequestOpened
+                        ? "open" : fact.commitSha(), fact.source().integrationId(),
+                new TimelineFact(fact.eventId(), fact.type().name(), fact.occurredAt(), fact.commitSha(), fact.actor()));
+        idempotency.record(fact, stored.getId());
         metrics.committed(false);
         return stored;
     }
@@ -62,8 +89,8 @@ public class ChangeApplicationService {
         org.springframework.util.Assert.isTrue(page >= 0 && page <= 10000 && size >= 1 && size <= 100,
                 "Page must be 0..10000 and size must be 1..100");
         if (repository != null) org.springframework.util.Assert.hasText(repository, "Repository must be nonblank");
-        // A UUID tie-breaker makes pages deterministic when multiple merges share an occurrence time.
-        var order = org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "mergedAt")
+        // A UUID tie-breaker makes pages deterministic when multiple changes share an occurrence time.
+        var order = org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "activityAt")
                 .and(org.springframework.data.domain.Sort.by("id"));
         return changes.findPage(organization, repository, org.springframework.data.domain.PageRequest.of(page, size, order));
     }

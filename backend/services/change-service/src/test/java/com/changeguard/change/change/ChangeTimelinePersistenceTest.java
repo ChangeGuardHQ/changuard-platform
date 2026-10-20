@@ -39,13 +39,27 @@ class ChangeTimelinePersistenceTest {
             // An isolated schema models a populated installation that has only applied V1/V2.
             Flyway.configure().dataSource(dataSource).defaultSchema("timeline_upgrade").schemas("timeline_upgrade")
                     .locations("classpath:db/migration").target("2").load().migrate();
-            jdbc.sql("INSERT INTO timeline_upgrade.change_records SELECT * FROM change.change_records").update();
+            // Copy only the V2 columns, even when the running service has later additive migrations.
+            String columns = "id, organization_id, provider, integration_id, repository_id, repository_full_name, "
+                    + "pull_request_number, title, commit_sha, source_branch, target_branch, actor_type, actor_id, "
+                    + "merged_at, received_at, created_at, source_event_id, trace_id, upstream_change_id, status";
+            jdbc.sql("INSERT INTO timeline_upgrade.change_records (" + columns + ") SELECT " + columns
+                    + " FROM change.change_records").update();
+            jdbc.sql("INSERT INTO timeline_upgrade.processed_events SELECT * FROM change.processed_events").update();
             Flyway.configure().dataSource(dataSource).defaultSchema("timeline_upgrade").schemas("timeline_upgrade")
                     .locations("classpath:db/migration").target("3").load().migrate();
             assertThat(jdbc.sql("SELECT event_id FROM timeline_upgrade.change_timeline WHERE change_id = :id")
                     .param("id", original.getId()).query(String.class).single()).isEqualTo("original-event");
             assertThat(jdbc.sql("SELECT occurred_at FROM timeline_upgrade.change_timeline")
                     .query((rs, row) -> rs.getTimestamp(1).toInstant()).single()).isEqualTo(MERGED_AT);
+            Flyway.configure().dataSource(dataSource).defaultSchema("timeline_upgrade").schemas("timeline_upgrade")
+                    .locations("classpath:db/migration").target("4").load().migrate();
+            assertThat(jdbc.sql("SELECT kind FROM timeline_upgrade.change_records WHERE id = :id")
+                    .param("id", original.getId()).query(String.class).single()).isEqualTo("PULL_REQUEST");
+            assertThat(jdbc.sql("SELECT activity_at FROM timeline_upgrade.change_records")
+                    .query((rs, row) -> rs.getTimestamp(1).toInstant()).single()).isEqualTo(MERGED_AT);
+            assertThat(jdbc.sql("SELECT fingerprint FROM timeline_upgrade.processed_events")
+                    .query(String.class).single()).isEqualTo(merged("original-event", "org", "repo", 7).fingerprint());
         } finally { jdbc.sql("DROP SCHEMA IF EXISTS timeline_upgrade CASCADE").update(); }
     }
 

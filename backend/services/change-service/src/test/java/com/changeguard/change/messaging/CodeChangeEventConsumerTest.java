@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/** Invalid records never reach the transaction; database failures escape to the stopping error handler. */
+/** Invalid records never reach the transaction; database failures escape to the retry/quarantine handler. */
 class CodeChangeEventConsumerTest {
     private final ChangeApplicationService service = mock(ChangeApplicationService.class);
     private final ChangeMapper mapper = new ChangeMapper();
@@ -48,7 +48,7 @@ class CodeChangeEventConsumerTest {
 
     @Test
     void tombstonesAndUnsupportedRecordTypesAreNotSilentlyAcknowledged() {
-        for (Object value : new Object[] {null, "not-avro", new com.changeguard.events.code.CommitCreated()}) {
+        for (Object value : new Object[] {null, "not-avro"}) {
             assertThatThrownBy(() -> consumer.consume(new ConsumerRecord<>("topic", 0, 0, "repo-wire", value)))
                     .isInstanceOf(EventProcessingException.class);
         }

@@ -1,10 +1,10 @@
 # Shared V1 event contracts
 
 **Status: implemented schemas, generated Java records, compatibility checks, and
-merged-PR publication.** `PullRequestMerged` is the canonical name. The former
+code lifecycle publication and projection.** `PullRequestMerged` is the canonical name. The former
 `CodeChangeMerged` discriminator is accepted only when reading historical connector
-outbox rows. The connector currently ingests merged pull requests; the adapters for
-opened pull requests and commits remain planned.
+outbox rows. The connector ingests merged PRs and optionally opened PRs/branch pushes;
+change-service projects all three released code contracts with durable receipts and timelines.
 
 ## Schema catalog subsystem
 
@@ -16,9 +16,9 @@ fields are repeated in the three schemas and checked for consistency by tests.
 
 ```mermaid
 flowchart TD
-    Common["Shared envelope fields<br/>and common Avro records"] --> Opened["PullRequestOpened v1<br/>schema ready; adapter planned"]
+    Common["Shared envelope fields<br/>and common Avro records"] --> Opened["PullRequestOpened v1<br/>adapter implemented; opt-in"]
     Common --> Merged["PullRequestMerged v1<br/>active connector pipeline"]
-    Common --> Commit["CommitCreated v1<br/>schema ready; adapter planned"]
+    Common --> Commit["CommitCreated v1<br/>adapter implemented; opt-in"]
     Opened --> Topic["changeguard.code-events.v1<br/>String repository key"]
     Merged --> Topic
     Commit --> Topic
@@ -76,7 +76,7 @@ flowchart LR
     Plugin --> Records["Generated Java records"]
     Records --> Jar["event-contracts JAR<br/>plus schema resources"]
     Jar --> Connector["Connector mapper and producer"]
-    Jar --> Consumer["Change Service merge consumer"]
+    Jar --> Consumer["Change Service lifecycle consumer"]
     Baseline["Released V1 test snapshots"] --> Check["Reader/writer compatibility tests"]
     Source --> Check
 ```
@@ -133,7 +133,10 @@ For an existing deployment, stop the older JSON-producing connector, set
 `CODE_EVENTS_TOPIC=changeguard.code-events.v1`, then start the new Compose stack.
 Use an Avro-aware consumer on that stream. Existing JSON messages stay on the
 earlier topic, and accepted pending receipts are recovered by the new relay.
-Schema-only readiness for `PullRequestOpened` and `CommitCreated` does not add
-their webhook handlers or projections. Change Service currently projects merged
-pull requests and exposes their timeline; unsupported lifecycle types stop its
-listener instead of being silently discarded.
+Deploy the lifecycle consumer and its V4 migration before setting
+`GITHUB_CODE_LIFECYCLE_ENABLED=true` in the connector. That flag enables opened-PR
+and branch-push publication; merge publication remains enabled independently.
+One push produces distinct delivery-plus-SHA event IDs. Change Service preserves
+late opening history without downgrading MERGED state and keeps standalone commits
+separate from PR identities. Invalid or future unsupported records enter a durable
+DLT, with controlled replay after repair; failed DLT publication retains the offset.

@@ -2,7 +2,7 @@ package com.changeguard.change.idempotency;
 
 import java.util.Optional;
 import java.util.UUID;
-import com.changeguard.change.change.MergedChange;
+import com.changeguard.change.change.ReceiptEvent;
 import com.changeguard.change.exception.EventProcessingException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -16,13 +16,13 @@ public class IdempotencyService {
 
     public IdempotencyService(ProcessedEventRepository receipts) { this.receipts = receipts; }
 
-    public Optional<ProcessedEvent> previouslyProcessed(MergedChange merge) {
+    public Optional<ProcessedEvent> previouslyProcessed(ReceiptEvent merge) {
         var existing = receipts.find(merge.organizationId(), merge.eventId());
         existing.ifPresent(receipt -> verify(receipt, merge));
         return existing;
     }
 
-    public void record(MergedChange merge, UUID changeId) {
+    public void record(ReceiptEvent merge, UUID changeId) {
         receipts.insertIfAbsent(merge.organizationId(), merge.eventId(), merge.fingerprint(), changeId);
         // A competing transaction may have inserted the same event while this one was projecting.
         var stored = receipts.find(merge.organizationId(), merge.eventId()).orElseThrow();
@@ -32,9 +32,9 @@ public class IdempotencyService {
         }
     }
 
-    private void verify(ProcessedEvent receipt, MergedChange merge) {
+    private void verify(ProcessedEvent receipt, ReceiptEvent merge) {
         if (!receipt.fingerprint().equals(merge.fingerprint())) {
-            throw new EventProcessingException("Event ID was reused with different merge facts");
+            throw new EventProcessingException("Event ID was reused with different lifecycle facts");
         }
     }
 }
