@@ -62,7 +62,7 @@ class ChangeServiceApplicationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness"})
+    @ValueSource(strings = {"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/health/projection"})
     void healthProbesArePublicWithoutExposingDetails(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isOk())
@@ -82,6 +82,15 @@ class ChangeServiceApplicationTests {
     @ValueSource(strings = {"/actuator/info", "/actuator/prometheus", "/api/v1/changes"})
     void otherEndpointsRequireAuthentication(String path) throws Exception {
         mockMvc.perform(get(path)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void projectionProbeReportsIntentionalMaintenanceWithoutAffectingReadiness() throws Exception {
+        // This profile disables the listener explicitly, so a stopped consumer is expected.
+        mockMvc.perform(get("/actuator/health/projection")
+                        .with(httpBasic("infrastructure-test", "test-password")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.codeEventConsumer.details.enabled").value(false));
     }
 
     @Test

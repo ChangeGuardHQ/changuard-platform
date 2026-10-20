@@ -23,13 +23,16 @@ public class KafkaErrorHandlerConfig {
      * a failed DLT send re-seeks the source record instead of discarding it.
      */
     @Bean
-    public CommonErrorHandler kafkaErrorHandler(RawDeadLetterRecoverer recoverer, RecoveryProperties recovery) {
+    public CommonErrorHandler kafkaErrorHandler(RawDeadLetterRecoverer recoverer, RecoveryProperties recovery,
+            org.springframework.beans.factory.ObjectProvider<org.springframework.kafka.listener.RetryListener> observers) {
         var handler = new DefaultErrorHandler(recoverer,
                 new FixedBackOff(recovery.retryInterval().toMillis(), recovery.retries()));
         handler.addNotRetryableExceptions(com.changeguard.change.exception.EventProcessingException.class,
                 IllegalArgumentException.class, org.springframework.dao.DataIntegrityViolationException.class,
                 org.springframework.dao.InvalidDataAccessApiUsageException.class,
                 org.springframework.dao.InvalidDataAccessResourceUsageException.class);
+        // Observe actual delivery and recovery outcomes, including failures before the listener is invoked.
+        handler.setRetryListeners(observers.orderedStream().toArray(org.springframework.kafka.listener.RetryListener[]::new));
         return handler;
     }
 

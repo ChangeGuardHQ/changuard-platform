@@ -81,6 +81,9 @@ management:
           include: livenessState
         readiness:
           include: readinessState,db
+        projection:
+          # A separate probe lets operators detect stopped projection without draining healthy read APIs.
+          include: codeEventConsumer
 
   health:
     livenessstate:
