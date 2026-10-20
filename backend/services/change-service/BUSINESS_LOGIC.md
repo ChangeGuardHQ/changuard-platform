@@ -30,3 +30,12 @@ Final image validation also found `CVE-2026-77214` in the pinned JRE's native
 libexpat package. The runtime Dockerfiles explicitly install Alpine's fixed
 `2.9.0-r0` package, including the shared broker and Registry images used by CI.
 The HIGH/CRITICAL and secret gates remain enabled.
+
+## Follow-up PR 1: consumer recovery
+
+`feature/change-consumer-recovery` adds bounded processing retries and a dedicated,
+byte-preserving DLT. Permanent contract errors skip retries; temporary database
+failures retry before quarantine. A failed quarantine publish retains the source
+offset. The packaged single-offset replay tool defaults to dry run, validates
+source provenance, and leaves consumer groups untouched. Broker integration tests
+cover retry success, invalid Avro, later-record progress and DLT publishing failure.

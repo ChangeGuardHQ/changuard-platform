@@ -50,6 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Real Registry framing, broker offsets, database commits, replays and authenticated reads in one flow. */
 @SpringBootTest(properties = {"spring.kafka.listener.auto-startup=true",
         "spring.kafka.consumer.group-id=change-projection-wire", "changeguard.kafka.topics.code-events=changeguard.projection-test.v1",
+        "changeguard.kafka.recovery.dead-letter-topic=changeguard.projection-test.dlt",
         "changeguard.api.organizations[0].organization-id=org-wire",
         "changeguard.api.organizations[0].readers[0]=infrastructure-test"})
 @AutoConfigureMockMvc
@@ -87,7 +88,7 @@ class ChangeProjectionIntegrationTest {
     @Autowired MockMvc mvc;
 
     @Test
-    void mergeIsQueryableAfterCommitAndReplayIsSafeWhileInvalidRecordsRetainTheirOffset() throws Exception {
+    void mergeIsQueryableAfterCommitAndReplayIsSafeWhileInvalidRecordsAreQuarantined() throws Exception {
         try (var registry = new CachedSchemaRegistryClient(registryUrl(), 20)) {
             for (var schema : CodeEventSchemas.all()) {
                 String subject = CodeEventSchemas.subject(TOPIC, schema);
@@ -137,8 +138,9 @@ class ChangeProjectionIntegrationTest {
             var invalid = AvroFixtures.merged("unsupported-version", "org-wire");
             invalid.setEventVersion(2);
             producer.send(new ProducerRecord<>(TOPIC, "repo-wire", invalid)).get(10, TimeUnit.SECONDS);
-            await().atMost(Duration.ofSeconds(15)).until(() -> !container.isRunning());
-            assertThat(committedOffset(admin, partition)).isEqualTo(2);
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                    assertThat(committedOffset(admin, partition)).isEqualTo(3));
+            assertThat(container.isRunning()).isTrue();
             assertThat(changes.count()).isEqualTo(1);
             assertThat(receiptCount()).isEqualTo(1);
         }
@@ -153,6 +155,11 @@ class ChangeProjectionIntegrationTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TopicConfiguration {
+        // Quarantine is explicitly provisioned, including in environments with topic auto-creation disabled.
+        @Bean
+        org.apache.kafka.clients.admin.NewTopic deadLetterTopic() {
+            return TopicBuilder.name("changeguard.projection-test.dlt").partitions(1).replicas(1).build();
+        }
         @Bean
         org.apache.kafka.clients.admin.NewTopic codeEventsTopic() {
             return TopicBuilder.name(TOPIC).partitions(1).replicas(1).build();
