@@ -153,3 +153,33 @@ version control. The tool verifies source provenance, strips stale failure heade
 waits for the broker acknowledgment, and never changes DLT or projection consumer
 group offsets. Repeated execution is safe through transactional event receipts;
 quarantine records remain until retention expires, so record the replayed offset.
+
+## Observe projection progress
+
+`GET /actuator/health/projection` checks whether an enabled consumer is running,
+paused, or waiting for partition assignment. Intentional configuration with
+`KAFKA_LISTENER_AUTO_STARTUP=false` reports UP with `enabled=false`. Details require
+authentication. This probe checks container state; use lag and error metrics to
+assess progress or broker outages. The read API readiness probe continues to check
+the database independently of projection availability.
+
+The authenticated `/actuator/prometheus` endpoint exposes:
+
+- `changeguard_change_ingestion_total{result="applied|duplicate"}`: committed event
+  receipts, including already processed event IDs. Distinct delivery IDs are
+  applied receipts even when they resolve to the same business change.
+- `changeguard_change_delivery_failures_total` and `..._retries_total`: failed
+  delivery attempts, including deserialization failures before listener invocation.
+- `changeguard_change_delivery_quarantined_total`: broker-acknowledged recovery.
+  `..._recovery_failures_total` counts failed quarantine attempts.
+- `changeguard_change_consumer_enabled` and `..._running`: expected and actual
+  listener state. Alert when enabled is 1 and running remains 0.
+- Native `kafka_consumer_fetch_manager_records_lag_max` and consumption metrics:
+  inspect backlog per assigned partition. These are fetched-position metrics;
+  processing retries can keep committed progress behind the fetch position.
+
+Alert on sustained delivery/recovery failures, any quarantine growth, stopped
+consumers and increasing lag. Application counters reset on process restart;
+Prometheus rates must account for resets. Labels never contain organization IDs,
+repository IDs, event IDs or payloads. Database rollback does not increment the
+successful-ingestion counter.

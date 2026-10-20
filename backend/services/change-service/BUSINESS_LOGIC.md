@@ -39,3 +39,10 @@ failures retry before quarantine. A failed quarantine publish retains the source
 offset. The packaged single-offset replay tool defaults to dry run, validates
 source provenance, and leaves consumer groups untouched. Broker integration tests
 cover retry success, invalid Avro, later-record progress and DLT publishing failure.
+
+## Follow-up PR 2: consumer visibility
+
+`feature/change-consumer-visibility` adds a separate projection health group,
+consumer-state gauges, commit-aware ingestion counters, recovery outcomes and
+native Kafka lag metrics. Read API readiness remains tied to the database.
+Tests cover rollback-safe counters, failed recovery and container state changes.

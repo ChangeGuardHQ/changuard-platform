@@ -50,6 +50,7 @@ import static org.mockito.Mockito.*;
 @DirtiesContext
 class KafkaRecoveryIntegrationTest {
     @Autowired EmbeddedKafkaBroker broker;
+    @Autowired io.micrometer.core.instrument.MeterRegistry meters;
     @Autowired ConcurrentKafkaListenerContainerFactory<Object, Object> factory;
     @MockitoSpyBean KafkaTemplate<byte[], byte[]> template;
 
@@ -78,6 +79,7 @@ class KafkaRecoveryIntegrationTest {
                 assertThat(accepted.get()).isEqualTo(2);
             });
             assertThat(attempts.get()).isEqualTo(3);
+            assertThat(meters.get("changeguard.change.delivery.quarantined").counter().count()).isGreaterThanOrEqualTo(2);
             var records = new java.util.ArrayList<org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]>>();
             await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
                 dlt.poll(Duration.ofMillis(200)).forEach(record -> {
@@ -165,6 +167,13 @@ class KafkaRecoveryIntegrationTest {
     }
     @TestConfiguration(proxyBeanMethods = false)
     @ImportAutoConfiguration(KafkaAutoConfiguration.class)
-    @Import({KafkaConsumerConfig.class, KafkaErrorHandlerConfig.class})
-    static class Configuration { }
+    @Import({KafkaConsumerConfig.class, KafkaErrorHandlerConfig.class,
+            com.changeguard.change.observability.ProjectionMetrics.class})
+    static class Configuration {
+        // A real registry checks that the container invokes the configured retry observer.
+        @org.springframework.context.annotation.Bean
+        io.micrometer.core.instrument.MeterRegistry meters() {
+            return new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        }
+    }
 }

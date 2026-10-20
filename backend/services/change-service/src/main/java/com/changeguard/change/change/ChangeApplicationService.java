@@ -11,17 +11,21 @@ public class ChangeApplicationService {
     private final ChangeRecordRepository changes;
     private final ChangeMapper mapper;
     private final IdempotencyService idempotency;
+    private final com.changeguard.change.observability.ProjectionMetrics metrics;
 
-    public ChangeApplicationService(ChangeRecordRepository changes, ChangeMapper mapper, IdempotencyService idempotency) {
+    public ChangeApplicationService(ChangeRecordRepository changes, ChangeMapper mapper, IdempotencyService idempotency,
+            com.changeguard.change.observability.ProjectionMetrics metrics) {
         this.changes = changes;
         this.mapper = mapper;
         this.idempotency = idempotency;
+        this.metrics = metrics;
     }
 
     @Transactional
     public ChangeRecord ingest(MergedChange merge) {
         var receipt = idempotency.previouslyProcessed(merge);
         if (receipt.isPresent()) {
+            metrics.committed(true);
             return changes.findByOrganizationIdAndId(merge.organizationId(), receipt.get().changeId()).orElseThrow();
         }
         // The natural-key constraint also deduplicates distinct deliveries/integrations of one PR merge.
@@ -34,6 +38,7 @@ public class ChangeApplicationService {
         }
         // A receipt failure rolls back a newly inserted projection as well; there is no pre-commit side effect.
         idempotency.record(merge, stored.getId());
+        metrics.committed(false);
         return stored;
     }
 

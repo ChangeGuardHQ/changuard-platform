@@ -15,10 +15,14 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 public class KafkaConsumerConfig {
 
     @Bean
-    public ConsumerFactory<Object, Object> consumerFactory(KafkaProperties properties) {
+    public ConsumerFactory<Object, Object> consumerFactory(KafkaProperties properties,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meters) {
         // Avro 1.12.2 permits only the reviewed generated records and their common types.
         com.changeguard.events.CodeEventSchemas.trustGeneratedClasses();
-        return new DefaultKafkaConsumerFactory<>(properties.buildConsumerProperties());
+        var factory = new DefaultKafkaConsumerFactory<Object, Object>(properties.buildConsumerProperties());
+        // Bind native fetch/lag metrics and remove them when a consumer closes or restarts.
+        meters.ifAvailable(registry -> factory.addListener(new org.springframework.kafka.core.MicrometerConsumerListener<>(registry)));
+        return factory;
     }
 
     @Bean
