@@ -13,21 +13,26 @@ import {
   HubRounded,
   QueryStatsRounded,
   TimelineRounded,
+  GitHub,
 } from '@mui/icons-material'
 import { NavLink, Outlet } from 'react-router-dom'
 import type { NavigationItem } from '../../types/navigation'
+import { useWorkspace } from '../../app/WorkspaceSession'
 
-const drawerWidth = 248
+// Keep navigation usable on narrow windows while retaining accessible icon labels.
+const drawerWidth = { xs: 76, md: 248 }
 const copyrightYear = new Date().getFullYear()
 
 const navigationItems: NavigationItem[] = [
   { label: 'Overview', path: '/', icon: <QueryStatsRounded /> },
   { label: 'Changes', path: '/changes', icon: <AccountTreeRounded /> },
+  { label: 'Connections', path: '/connections', icon: <GitHub /> },
   { label: 'Services', path: '/services', icon: <HubRounded /> },
   { label: 'Activity', path: '/activity', icon: <TimelineRounded /> },
 ]
 
 export function AppLayout() {
+  const { session } = useWorkspace()
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <Drawer
@@ -46,7 +51,7 @@ export function AppLayout() {
           },
         }}
       >
-        <Toolbar sx={{ px: 2.5, minHeight: '76px !important' }}>
+        <Toolbar sx={{ px: { xs: 1, md: 2.5 }, minHeight: '76px !important' }}>
           <Box
             component="img"
             src="/brand/changeguard-logo.png"
@@ -55,16 +60,25 @@ export function AppLayout() {
               display: 'block',
               width: '100%',
               height: 52,
-              objectFit: 'cover',
+              objectFit: { xs: 'contain', md: 'cover' },
               objectPosition: 'center',
             }}
           />
         </Toolbar>
-        <Box component="nav" aria-label="Main navigation" sx={{ px: 1.5, pt: 2 }}>
+        <Box
+          component="nav"
+          aria-label="Main navigation"
+          sx={{ px: { xs: 0.75, md: 1.5 }, pt: 2 }}
+        >
           <Typography
             variant="overline"
             color="text.secondary"
-            sx={{ px: 1.5, fontWeight: 700, letterSpacing: '0.1em' }}
+            sx={{
+              display: { xs: 'none', md: 'block' },
+              px: 1.5,
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+            }}
           >
             Workspace
           </Typography>
@@ -74,6 +88,7 @@ export function AppLayout() {
                 key={item.path}
                 component={NavLink}
                 to={item.path}
+                aria-label={item.label}
                 end={item.path === '/'}
                 sx={{
                   mb: 0.5,
@@ -102,8 +117,12 @@ export function AppLayout() {
               >
                 <ListItemIcon>{item.icon}</ListItemIcon>
                 <ListItemText
+                  sx={{ display: { xs: 'none', md: 'block' } }}
                   primary={
-                    <Typography component="span" sx={{ fontSize: 14, fontWeight: 600 }}>
+                    <Typography
+                      component="span"
+                      sx={{ fontSize: 14, fontWeight: 600 }}
+                    >
                       {item.label}
                     </Typography>
                   }
@@ -112,7 +131,7 @@ export function AppLayout() {
             ))}
           </List>
         </Box>
-        <Box sx={{ mt: 'auto', p: 2.5 }}>
+        <Box sx={{ display: { xs: 'none', md: 'block' }, mt: 'auto', p: 2.5 }}>
           <Typography variant="caption" color="text.secondary">
             Software delivery intelligence
           </Typography>
@@ -121,7 +140,12 @@ export function AppLayout() {
 
       <Box
         component="main"
-        sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          flexGrow: 1,
+          minWidth: 0,
+        }}
       >
         <Box
           component="header"
@@ -138,7 +162,7 @@ export function AppLayout() {
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Change intelligence workspace
+            Organization · {session.organization}
           </Typography>
         </Box>
         <Box
@@ -166,7 +190,8 @@ export function AppLayout() {
             aria-hidden="true"
             sx={{
               height: 2,
-              background: 'linear-gradient(90deg, #1268e8 0%, #078fc9 58%, #00aebd 100%)',
+              background:
+                'linear-gradient(90deg, #1268e8 0%, #078fc9 58%, #00aebd 100%)',
               opacity: 0.75,
             }}
           />
@@ -196,7 +221,11 @@ export function AppLayout() {
               />
               <Typography
                 variant="caption"
-                sx={{ color: 'primary.dark', fontWeight: 600, letterSpacing: '0.01em' }}
+                sx={{
+                  color: 'primary.dark',
+                  fontWeight: 600,
+                  letterSpacing: '0.01em',
+                }}
               >
                 Software delivery intelligence, from code to production.
               </Typography>

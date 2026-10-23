@@ -1,181 +1,125 @@
 # ChangeGuard frontend
 
-The frontend is a React and TypeScript single-page application built with Vite and Material UI.
-It sits behind the API Gateway / BFF and consumes aggregated read APIs; it does not access
-Kafka or backend services directly.
+React, TypeScript, Material UI and TanStack Query power the local visual-test UI.
+Changes, details, persisted timelines, GitHub installation completion and repository
+selection call the real backend APIs. Services and Activity remain placeholders;
+no sample activity is shipped in the application.
 
-## System and subsystems
+For a complete GitHub test, follow [Live visual testing](../docs/visual-testing.md).
 
-**Status: partial.** App composition, theme, navigation, placeholder pages, query
-defaults, and the GET transport are implemented. Feature queries, real delivery
-data, authentication UI, and the Gateway/BFF are planned. Dashed arrows below
-identify connections that still need implementation.
+## Start locally
 
-| Subsystem | Responsibility | Status |
-| --- | --- | --- |
-| [App composition and presentation](#app-composition-and-presentation) | Bootstrap React and supply the theme, query client, router, and reusable shell. | Implemented |
-| [Navigation and feature pages](#navigation-and-feature-pages) | Map URLs to route pages and domain UI; keep title and navigation consistent. | Shell implemented; data views planned |
-| [State and API transport](#state-and-api-transport) | Separate URL, server, and transient interaction state; fetch through one API boundary. | Defaults/GET helper implemented; feature hooks planned |
-| [Build and runtime](#build-and-runtime) | Serve local development and build deployable static assets. | Implemented; production hosting planned |
-
-### App composition and presentation
-
-[main.tsx](src/main.tsx) mounts the app under React StrictMode.
-[App.tsx](src/app/App.tsx) supplies MUI's theme and CSS baseline, one shared
-TanStack Query client, and BrowserRouter. [AppLayout](src/components/layout/AppLayout.tsx)
-owns persistent navigation, header, footer, and the route outlet. Shared
-components render presentation; `src/types/` supplies contracts such as navigation
-items. This composition is implemented and currently makes no platform API calls.
-
-```mermaid
-flowchart TD
-    Main["main.tsx: createRoot /<br/>StrictMode"] --> App["App.tsx"]
-    App --> Theme["ThemeProvider / CssBaseline"]
-    Theme --> Query["QueryClientProvider: shared<br/>queryClient"]
-    Query --> Router["BrowserRouter"]
-    Router --> Routes["AppRoutes"]
-    Routes --> Layout["AppLayout: navigation, header,<br/>footer, outlet"]
-    Layout --> Pages["Route-level pages"]
-    Pages --> Components["Reusable and feature<br/>presentation"]
-    Types["Shared TypeScript contracts"] -.-> Layout
-```
-
-### Navigation and feature pages
-
-[AppRoutes.tsx](src/app/AppRoutes.tsx) selects a page inside the shared layout.
-Overview composes `features/overview/OverviewQuestions`; Changes, Services, and
-Activity reuse `SectionPage` placeholders. Each page calls `usePageTitle` to update
-the document title. Future feature modules will own domain UI and query hooks,
-while pages retain route-level composition and shared hooks retain reusable behavior.
-
-```mermaid
-flowchart LR
-    URL["URL / navigation click"] --> Router["React Router / AppRoutes"]
-    Router --> Overview["/ : OverviewPage"]
-    Router --> Sections["/changes, /services,<br/>/activity: SectionPage"]
-    Router --> Missing["Other URLs: NotFoundPage"]
-    Overview --> Questions["OverviewQuestions feature UI"]
-    Overview --> Title["usePageTitle"]
-    Sections --> Title
-    Missing --> Title
-    Sections -.-> Future["Planned domain feature UI and<br/>data hooks"]
-```
-
-### State and API transport
-
-React Router owns navigation state; TanStack Query will own fetched server state;
-components own transient UI state. The implemented query defaults set a 30-second
-stale time, one retry, and no refetch on window focus.
-[apiClient.get](src/services/apiClient.ts) builds URLs from `VITE_API_BASE_URL`
-(default `/api`), supports an abort signal, returns typed JSON, and throws on
-non-success HTTP responses. Response typing is a TypeScript contract, not runtime
-schema validation. Feature hooks and explicit loading, empty, and error states are
-planned; current pages do not invoke the API helper.
-
-```mermaid
-flowchart TD
-    Route["Router: URL state"] --> Page["Feature page"]
-    Local["Component: temporary<br/>interaction state"] --> Page
-    Page -.->|"planned feature hook"| Query["TanStack Query: server state /<br/>cache"]
-    Query -.->|"planned query function"| Client["apiClient.get: fetch and HTTP<br/>error handling"]
-    Config["VITE_API_BASE_URL: public<br/>configuration"] --> Client
-    Client -.->|"HTTPS / JSON"| BFF["Gateway / BFF - planned"]
-    BFF -.->|"aggregated response"| Client
-    Query -.->|"data / loading / empty / error"| Page
-```
-
-### Build and runtime
-
-Vite serves the development shell locally and in the current Docker container.
-`npm run build` runs TypeScript checks and creates production static assets;
-the Dockerfile currently runs the Vite development server rather than those
-assets. Production static hosting and same-origin API routing are planned.
-CI verifies lint, types, tests, build, container startup, and security; see the
-[platform CI diagram](../README.md#25-cicd).
-
-```mermaid
-flowchart LR
-    Source["React / TypeScript source"] --> Dev["Vite dev server"]
-    Dev --> Browser["Browser: localhost:5173"]
-    Source --> Build["TypeScript checks and Vite<br/>build"]
-    Build --> Assets["dist: production static assets"]
-    Assets -.-> Hosting["Production hosting - planned"]
-    Docker["Docker dependency stage: npm<br/>ci"] --> Runtime["Unprivileged runtime: Vite dev<br/>server"]
-    Runtime --> Browser
-```
-
-## Local development
+From the repository root, start the backend infrastructure/services through Compose:
 
 ```sh
-npm install
+docker compose up --build -d postgres kafka schema-registry connector-service change-service
+cd frontend
+npm ci
 cp .env.example .env.local
 npm run dev
 ```
 
-To run the frontend in Docker from the repository root:
+Open <http://localhost:5173/connections>. Apply the organization ID and API account(s)
+configured on the backend. The normal Compose change reader is `changeguard` with
+password `change-me` for organization `local`; these are development defaults.
+The optional GitHub App override provides the separately configured connector
+administrator. You can enter just the change account when checking existing records.
+
+To run the frontend in Docker instead:
 
 ```sh
-docker compose up --build
+docker compose up --build -d frontend
 ```
 
-Open <http://localhost:5173>. The
-[Compose setup](../docker-compose.yaml) also starts the Connector Service on
-port 8081, Kafka on port 9092, and PostgreSQL on localhost:5432. The connector
-applies its database migrations at startup. To run only the frontend, use
-`docker compose up --build frontend`. Set `FRONTEND_PORT` before starting
-Compose to use a different host port if 5173 is already in use.
+Compose supplies service targets using Docker DNS. Host-run Vite defaults to
+`localhost:8082` for changes and `localhost:8081` for the connector. Override the
+server-only `CHANGE_API_PROXY_TARGET` and `CONNECTOR_API_PROXY_TARGET` variables if
+those host ports differ. Both development and `npm run preview` use the same proxy.
+Production static hosting still requires a gateway or reverse proxy for these routes.
 
-Set `VITE_API_BASE_URL` to the API Gateway / BFF base URL when it is available. The default
-`/api` path is suitable when the frontend is served behind a same-origin reverse proxy.
+## Routes and data
 
-## Commands
+| Route | Behavior |
+| --- | --- |
+| `/` | Overview and navigation into live views. |
+| `/changes` | Scoped list, repository-ID filter, 20-row pagination and optional five-second refresh. |
+| `/changes/:id` | Current projection and its persisted timeline; five-second refresh. |
+| `/connections` | Tab-scoped API accounts, projection health, GitHub installation and repository selection. |
+| `/connections/github/callback` | Explicit completion of single-use installation state after returning from GitHub. |
+
+Empty, loading, authorization and network failures are distinct. Failed background
+reads preserve the last successful data and display the failure. Polling stops for
+authentication/authorization errors. A commit stays separate from a pull request;
+the browser does not infer missing domain relationships or provider timestamps.
+
+```mermaid
+flowchart LR
+    GitHub[GitHub webhook] --> Connector[Connector / durable outbox]
+    Connector --> Kafka[Kafka + Registry]
+    Kafka --> Change[Change-service / PostgreSQL]
+    Browser[Browser / TanStack Query] --> Proxy[Vite local API proxy]
+    Proxy --> Change
+    Proxy --> Connector
+```
+
+## Authentication and request boundaries
+
+`WorkspaceSessionProvider` keeps credentials only in memory. Navigating between
+pages preserves them; reloading or leaving for GitHub clears them. Apply the same
+connector account after returning from installation, then click **Complete
+connection**. Callback completion is an explicit mutation without automatic retry,
+so React StrictMode cannot consume state twice.
+
+Changing accounts/organization or forgetting accounts cancels requests and clears
+the query cache. Passwords are excluded from URLs, storage and query keys. Browser
+password-manager behavior remains under the user's control. Public `VITE_*`
+configuration contains only API base path and the default organization; GitHub App
+keys and deployment secrets remain on the connector.
+
+All requests use the same-origin `/api` boundary. The Vite proxy owns only these
+routes and preserves caller Basic authentication, cookies and CSRF headers:
+
+| Browser prefix | Destination |
+| --- | --- |
+| `/api/v1/changes` | change-service, same path |
+| `/api/v1/organizations/` | connector-service, same path |
+| `/api/v1/integrations/github/` | connector-service, same path |
+| `/api/projection-health` | change-service `/actuator/health/projection` |
+
+GitHub setup writes first fetch the server's CSRF details and send the returned
+masked token with the HttpOnly cookie. Writes are not automatically retried.
+Repository selection replaces the complete selected set. Inaccessible active
+repositories stay visible until explicitly deselected; a failed read is never
+interpreted as an empty selection.
+
+Connector JSON long identifiers are converted to decimal strings using the JSON
+reviver's original source, with a safe-integer fallback for older browsers. Unsafe
+values fail closed when source preservation is unavailable. Selection requests
+write validated positive Java-long decimal literals without `Number` conversion.
+
+The production Gateway/BFF, OAuth/OIDC and production static hosting remain planned.
+The Vite proxy is a local development bridge, not a production authentication layer.
+
+## Verify
 
 ```sh
-npm run dev        # Start the Vite development server
-npm run typecheck  # Run the TypeScript project checks
-npm run lint       # Run Oxlint
-npm test           # Run unit and integration tests
-npm run build      # Type-check and build production assets
-npm run preview    # Preview the production build locally
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-See [the frontend architecture](../docs/architecture/frontend.md) for app boundaries,
-state ownership, and the API integration direction.
+Tests cover account/cache isolation, list/detail/timeline reads, pagination,
+repository filtering, authorization errors, callback single use, CSRF, exact long
+IDs and selection safety. A Node-environment test starts isolated loopback HTTP
+servers and the real Vite proxy to verify route ownership and cookie/header/body
+forwarding. Test fixtures are confined to test files.
 
-## CI checks
+Existing CI runs these checks plus dependency, source, container and secret scans.
+See the [workflow guide](../.github/workflows/README.md). No production gateway or
+real GitHub credentials are needed for the automated frontend suite.
 
-[Frontend CI](../.github/workflows/frontend_ci.yml) is the entry point for
-separate reusable workflows covering verification, source security scans,
-CodeQL, and containers. See the [workflow guide](../.github/workflows/README.md)
-for the file map. Verification runs lint, TypeScript checks,
-all Vitest unit/integration tests, and the production build. It uploads JUnit
-test reports. Independent jobs run the npm dependency audit, Semgrep source
-security checks for JavaScript/TypeScript and React, Trivy dependency/secret/
-configuration scans, and the Docker build, HTTP startup check, and image scan.
-The npm audit and Trivy scans fail on HIGH or CRITICAL findings. Security JSON
-reports are uploaded even when a scan fails. Semgrep runs on every workflow
-invocation, fails on findings or scanner errors, and retains JSON/SARIF reports
-as `frontend-sast`. Its scanner image and upstream rules are pinned, and the
-scan runs without network access or an account. The image is pulled from
-`mirror.gcr.io` using the same verified digest to avoid Docker Hub's anonymous
-pull limit; see the [shared CI setup](../README.md#25-cicd).
-
-CodeQL with extended JavaScript/TypeScript security queries runs automatically
-for public repositories. For a private repository, enable GitHub Code Security
-and set the Actions repository variable `CODEQL_ENABLED` to `true`. Otherwise
-the CodeQL job is skipped while Semgrep and the other security checks still
-run. When enabled, CodeQL publishes findings to GitHub code scanning and retains
-its SARIF report as `frontend-codeql`, including when the results upload fails.
-See the [shared CodeQL setup instructions](../README.md#25-cicd).
-
-Frontend, workflow, and Compose changes trigger checks, and a weekly schedule
-refreshes scans. External actions are pinned to commit IDs. CI and Docker use
-Node.js 24.21.0, and CI runners use Ubuntu 24.04. Docker pins the Node image to
-`24.21.0-alpine3.24` and its multi-platform digest. The Node base, Dockerfile
-frontend, and CI BuildKit images are pulled through `mirror.gcr.io` to avoid
-Docker Hub's anonymous pull limit. Direct dependencies use exact versions matching the lockfile;
-`.npmrc` also saves exact versions for future installs. The Docker dependency
-stage installs npm packages, and the runtime
-stage launches the Vite development server directly without bundled npm/Yarn
-tooling. Its health check calls the development server. The separate build step
-verifies the production assets.
+Vite is pinned to 8.3.5 with its matching lockfile to address the advisories affecting
+8.3.2. Keep development dependencies in audit and image scans: this local visual-test
+container runs Vite directly. CI logs summarize audit and Trivy findings while keeping
+their complete JSON reports as artifacts and retaining the HIGH/CRITICAL failure gate.

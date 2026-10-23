@@ -57,6 +57,11 @@ jobs:
           format: json
           output: frontend-container-security.json
 
+      - name: Summarize container security findings
+        # Log package versions and available fixes without printing secret matches from the JSON artifact.
+        if: always() && steps.build.outcome == 'success'
+        run: python3 .github/scripts/summarize_trivy.py frontend-container-security.json
+
       - name: Upload container security report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

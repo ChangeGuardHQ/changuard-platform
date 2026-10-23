@@ -4,15 +4,19 @@ import { BrowserRouter } from 'react-router-dom'
 import { AppRoutes } from './AppRoutes'
 import { queryClient } from './queryClient'
 import { theme } from './theme'
+import { WorkspaceSessionProvider } from './WorkspaceSessionProvider'
 
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        {/* API accounts and caches share one tab-scoped lifetime across route navigation. */}
+        <WorkspaceSessionProvider>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </WorkspaceSessionProvider>
       </QueryClientProvider>
     </ThemeProvider>
   )

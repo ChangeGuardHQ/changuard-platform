@@ -516,7 +516,7 @@ features. In mixed-status diagrams, node labels identify the status. Solid arrow
 show calls or data flow; dashed arrows show a pending connection or supporting
 dependency, as described beside the diagram.
 
-The current Compose stack runs the frontend shell, Connector Service, Kafka, and PostgreSQL.
+The current Compose stack runs the frontend, Connector Service, Change Service, Kafka, PostgreSQL and Schema Registry.
 The connector owns migrated integration, repository-selection, receipt, and outbox tables.
 The connector verifies signed merged-PR deliveries, resolves stored installation
 ownership, and commits receipts/events before returning `202`. Its scheduled outbox
@@ -577,18 +577,21 @@ flowchart TB
 
 ## 7.3 Frontend system
 
-**Status: partial.** React composes the theme, query provider, router, and persistent
-layout. Overview renders product guidance; Changes, Services, and Activity are
-placeholder routes. The GET transport and query defaults exist, while feature
-queries and the BFF are planned. The [frontend README](frontend/README.md) diagrams
-each internal boundary and its state ownership.
+**Status: live code views and GitHub connection UI implemented for local visual testing.**
+React supplies a tab-scoped workspace, authenticated API transport, scoped Changes
+list/detail/timeline queries, and GitHub installation/repository selection. Services
+and Activity remain placeholders. The production BFF and OAuth/OIDC are planned.
+See [visual testing](docs/visual-testing.md) for App setup and expected behavior.
 
 ```mermaid
 flowchart TD
-    App["App: theme, query provider,<br/>router - implemented"] --> Layout["AppLayout and route pages -<br/>implemented"]
-    Layout -.->|"planned feature hooks"| Query["TanStack Query configuration -<br/>implemented"]
-    Query -.->|"planned feature requests"| Client["apiClient.get - implemented"]
-    Client -.->|"HTTPS / JSON"| BFF["API Gateway / BFF - planned V1"]
+    App["App: theme, query provider,<br/>workspace and router"] --> Layout["AppLayout and feature routes"]
+    Layout --> Query["TanStack Query: scoped reads,<br/>polling and explicit setup mutations"]
+    Query --> Client["API client: Basic / CSRF /<br/>exact provider IDs"]
+    Client --> Proxy["Same-origin Vite proxy:<br/>local development"]
+    Proxy --> Change["Change-service read API"]
+    Proxy --> Connector["Connector GitHub connection APIs"]
+    Client -.-> BFF["Production Gateway / BFF:<br/>planned"]
 ```
 
 Frontend boundaries and browser-to-BFF data flow are documented in
