@@ -34,11 +34,15 @@ async function write<T>(
   )
   if (!/^X-[A-Z0-9-]+$/i.test(csrf.headerName))
     throw new Error('Unexpected CSRF response from connector.')
-  return apiClient[method]<T>(path, {
+  const options: RequestOptions = {
     auth,
     jsonBody,
     headers: { [csrf.headerName]: csrf.token },
-  })
+  }
+  // Keep dispatch explicit so runtime method selection cannot resolve arbitrary object properties.
+  return method === 'post'
+    ? apiClient.post<T>(path, options)
+    : apiClient.put<T>(path, options)
 }
 export const githubApi = {
   list: (organization: string, options: RequestOptions) =>

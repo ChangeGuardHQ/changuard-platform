@@ -29,8 +29,29 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Dependency vulnerability audit
-        # Save the JSON report even when npm audit finds vulnerabilities.
-        run: npm audit --audit-level=high --json > npm-audit.json
+        # Preserve the audit's failure status and JSON artifact while exposing actionable findings in the log.
+        run: |
+          audit_status=0
+          npm audit --audit-level=high --json > npm-audit.json || audit_status=$?
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          # Registry-provided text must not become GitHub log commands or extra log lines.
+          def safe(value):
+              return str(value).replace("\r", " ").replace("\n", " ").replace("::", ": :")
+
+          report = json.loads(Path("npm-audit.json").read_text())
+          print("Audit counts:", safe(report.get("metadata", {}).get("vulnerabilities", {})))
+          for name, finding in report.get("vulnerabilities", {}).items():
+              print("  " + safe(f"{finding.get('severity')} {name}: {finding.get('range')}; fix: {finding.get('fixAvailable')}"))
+              for advisory in finding.get("via", []):
+                  if isinstance(advisory, dict):
+                      print("    " + safe(f"{advisory.get('title')} {advisory.get('url')}"))
+          if report.get("error"):
+              print("Audit error:", safe(report["error"].get("summary", report["error"].get("code"))))
+          PY
+          exit "$audit_status"
 
       - name: Filesystem, secret, and dependency security scan
         # Run after earlier failures as well, so the scan can still produce a report.
@@ -60,6 +81,12 @@ jobs:
           exit-code: "1"
           format: json
           output: frontend-configuration-security.json
+
+      - name: Summarize filesystem and configuration findings
+        # Reuse secret-safe backend diagnostics; JSON output otherwise hides package/fix details from the job log.
+        if: always()
+        working-directory: .
+        run: python3 .github/scripts/summarize_trivy.py frontend-filesystem-security.json frontend-configuration-security.json
 
       - name: Upload security reports
         # Preserve available reports for review, including when a scan fails.

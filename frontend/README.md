@@ -118,3 +118,8 @@ forwarding. Test fixtures are confined to test files.
 Existing CI runs these checks plus dependency, source, container and secret scans.
 See the [workflow guide](../.github/workflows/README.md). No production gateway or
 real GitHub credentials are needed for the automated frontend suite.
+
+Vite is pinned to 8.3.5 with its matching lockfile to address the advisories affecting
+8.3.2. Keep development dependencies in audit and image scans: this local visual-test
+container runs Vite directly. CI logs summarize audit and Trivy findings while keeping
+their complete JSON reports as artifacts and retaining the HIGH/CRITICAL failure gate.
