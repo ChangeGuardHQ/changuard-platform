@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { OverviewQuestions } from '../features/overview/OverviewQuestions'
 import { usePageTitle } from '../hooks/usePageTitle'
 
+/** Navigation leads to live code data; overview questions describe the broader delivery product. */
 export function OverviewPage() {
   usePageTitle('Overview')
 
@@ -27,7 +28,8 @@ export function OverviewPage() {
           variant="h1"
           sx={{
             mb: 1.5,
-            background: 'linear-gradient(100deg, #10213b 8%, #1268e8 58%, #00aebd 100%)',
+            background:
+              'linear-gradient(100deg, #10213b 8%, #1268e8 58%, #00aebd 100%)',
             backgroundClip: 'text',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
@@ -35,9 +37,13 @@ export function OverviewPage() {
         >
           Understand every change.
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 680, lineHeight: 1.8 }}>
-          Follow software delivery from code to production, connect operational impact, and keep
-          every engineering action accountable.
+        <Typography
+          variant="body1"
+          color="text.secondary"
+          sx={{ maxWidth: 680, lineHeight: 1.8 }}
+        >
+          Follow software delivery from code to production, connect operational
+          impact, and keep every engineering action accountable.
         </Typography>
       </Box>
 
@@ -58,9 +64,14 @@ export function OverviewPage() {
           <Typography variant="h2" sx={{ mb: 1 }}>
             Your change intelligence starts here
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 620, lineHeight: 1.7 }}>
-            The frontend foundation is ready. Connect it to the ChangeGuard API to populate this
-            workspace with your organization&apos;s delivery events.
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ maxWidth: 620, lineHeight: 1.7 }}
+          >
+            Connect a GitHub repository and follow its commits, pull requests,
+            and merge history as they arrive in your organization&apos;s
+            workspace.
           </Typography>
         </Box>
         <Button

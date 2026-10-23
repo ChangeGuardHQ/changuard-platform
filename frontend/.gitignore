@@ -36,3 +36,6 @@ dist-ssr
 .env.*
 .env.local
 .env.production
+
+# Keep the credential-free local proxy example in source control.
+!.env.example

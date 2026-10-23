@@ -224,3 +224,9 @@ deployment validation after supplying credentials; it is not required by CI.
 
 GitHub documents push permission requirements and the payload's commit limit in
 [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push).
+
+For browser-driven local testing, set the App's **Setup URL** to the frontend
+`/connections/github/callback` route instead of navigating directly to the API
+callback. The UI completes the same authenticated backend flow and provides
+repository selection. Follow the [visual testing guide](../../../docs/visual-testing.md)
+for frontend accounts, webhook forwarding and lifecycle expectations.
