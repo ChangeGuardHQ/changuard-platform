@@ -1,5 +1,6 @@
 {
   "files": [],
+  /* Build both environments without mixing browser and Node compiler settings. */
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }

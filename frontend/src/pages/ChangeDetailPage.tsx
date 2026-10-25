@@ -42,6 +42,7 @@ export function ChangeDetailPage() {
             startIcon={<RefreshRounded />}
             disabled={detail.isFetching || timeline.isFetching}
             onClick={() => {
+              // Revalidate the scoped detail before explicitly refreshing its dependent timeline.
               void detail.refetch().then((result) => {
                 if (result.data && !result.error) void timeline.refetch()
               })

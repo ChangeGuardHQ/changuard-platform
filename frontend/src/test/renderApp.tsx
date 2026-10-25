@@ -9,6 +9,7 @@ import { AppRoutes } from '../app/AppRoutes'
 import { WorkspaceSessionProvider } from '../app/WorkspaceSessionProvider'
 import { theme } from '../app/theme'
 
+// Each render owns a cache; clearing all of them after a test also releases retained query timers.
 const clients: QueryClient[] = []
 afterEach(() => {
   clients.splice(0).forEach((client) => client.clear())

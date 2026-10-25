@@ -12,6 +12,7 @@ const network = `cg-frontend-smoke-${randomUUID()}`
 const containers = []
 const docker = (...args) =>
   execFileSync('docker', args, { encoding: 'utf8' }).trim()
+// Echo raw request bodies so proxy checks can detect changes to signed bytes and large numeric identifiers.
 const mock = String.raw`
   const { createServer } = require('node:http');
   for (const [port, service] of [[8081, 'connector'], [8082, 'change']]) {
@@ -49,11 +50,13 @@ function start(image, ...args) {
 }
 
 function port(container, internal) {
+  // Docker assigns loopback host ports dynamically so the test can coexist with a developer's running stack.
   const state = JSON.parse(docker('inspect', container))[0]
   return state.NetworkSettings.Ports[`${internal}/tcp`][0].HostPort
 }
 
 async function ready(container) {
+  // Liveness only confirms startup; the later HTTP and TLS assertions verify externally observable behavior.
   for (let attempt = 0; attempt < 60; attempt++) {
     const state = JSON.parse(docker('inspect', container))[0].State
     if (!state.Running || state.Health?.Status === 'unhealthy')
@@ -117,6 +120,7 @@ try {
   )
   containers.push(backend)
 
+  // A disposable writable directory uses the runtime UID; application certificate volumes remain untouched.
   const common = [
     '--read-only',
     '--cap-drop',
@@ -209,6 +213,7 @@ try {
     /Command failed/,
   )
 
+  // localhost uses Caddy's local CA, exercising TLS without requesting a public ACME certificate.
   const tls = start(
     runtimeImage,
     ...common,

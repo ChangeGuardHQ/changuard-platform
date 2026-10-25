@@ -73,6 +73,7 @@ export function useRepositoryCatalog(enabled = true) {
   })
 }
 
+/** Organization history needs no intake catalog; a repository scope requires a fresh, active saved selection. */
 export function useTrackingAvailability() {
   const { session, scope } = useWorkspace()
   const catalog = useRepositoryCatalog(scope?.kind === 'repository')

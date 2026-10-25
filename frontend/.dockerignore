@@ -1,8 +1,10 @@
+# Build stages install their own dependencies; host caches and generated assets must not enter the context.
 node_modules
 dist
 coverage
 test-results
 .git
+# Retain the credential-free example while excluding private local and deployment configuration.
 .env*
 !.env.example
 *.log

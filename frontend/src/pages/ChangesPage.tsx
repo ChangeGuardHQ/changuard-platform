@@ -93,6 +93,7 @@ function ChangesResults({ repositoryName }: { repositoryName?: string }) {
   const [page, setPage] = useState(0)
   const [live, setLive] = useState(true)
   const query = useChanges(page, live)
+  // Transient read errors can retain labelled data; revoked access or invalid responses hide cached rows.
   const data = accessDenied(query.error) ? undefined : query.data
   const lastPage = data ? Math.max(0, data.totalPages - 1) : page
   const correctingPage = page > lastPage
@@ -242,6 +243,7 @@ function ChangesResults({ repositoryName }: { repositoryName?: string }) {
               </Table>
             </TableContainer>
           )}
+          {/* Match useChanges' fixed page size and the backend's maximum page index. */}
           <TablePagination
             component="div"
             count={data.totalElements}

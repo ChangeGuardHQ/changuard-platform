@@ -1,5 +1,6 @@
 import { createTheme } from '@mui/material/styles'
 
+/** Shared tokens keep navigation, forms and data views consistent without duplicating component defaults. */
 export const theme = createTheme({
   palette: {
     mode: 'light',
@@ -29,6 +30,7 @@ export const theme = createTheme({
     borderRadius: 12,
   },
   typography: {
+    // System fallbacks keep the interface usable when Inter is not installed locally.
     fontFamily: '"Inter", "Segoe UI", Roboto, sans-serif',
     h1: {
       fontSize: '2rem',

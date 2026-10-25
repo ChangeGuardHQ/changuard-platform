@@ -84,6 +84,7 @@ export function AppLayout() {
           >
             Workspace
           </Typography>
+          {/* Overview matches exactly; detail routes retain the Changes navigation item as active. */}
           <List sx={{ pt: 1 }}>
             {navigationItems.map((item) => (
               <ListItemButton

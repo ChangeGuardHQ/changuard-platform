@@ -16,6 +16,7 @@ export async function openWorkspace(connector = true, organization = 'local') {
   await userEvent.click(screen.getByRole('button', { name: 'Apply accounts' }))
   await userEvent.click(screen.getByRole('link', { name: 'Changes' }))
 }
+// Applying API accounts deliberately leaves scope unset; callers choose the view through the real form controls.
 export async function organizationScope() {
   await userEvent.click(screen.getByRole('radio', { name: 'Organization' }))
   await userEvent.click(

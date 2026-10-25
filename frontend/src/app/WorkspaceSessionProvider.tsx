@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { WorkspaceContext } from './WorkspaceSession'
 import type { TrackingScope, WorkspaceSession } from './WorkspaceSession'
 
+// This public build value seeds the form; authorization still comes from the backend's organization bindings.
 const defaultOrganization = import.meta.env.VITE_ORGANIZATION_ID || 'local'
 
 /** Visual-test authentication is tab-scoped; hosted tests use the same service accounts over HTTPS. */

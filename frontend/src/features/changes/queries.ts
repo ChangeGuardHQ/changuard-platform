@@ -5,9 +5,11 @@ import { useTrackingAvailability } from './repositories'
 import type { Change, ChangePage, ChangeTimeline } from './contracts'
 import { isChange, isChangePage, isTimeline } from './contracts'
 
+// Stop automatic reads after a client or validation failure; transient errors can recover on the next interval.
 const poll = (query: { state: { error: Error | null } }) =>
   query.state.error && !retryRead(0, query.state.error) ? false : 5000
 
+/** Bind pages to the applied scope and pass cancellation through when workspace credentials change. */
 export function useChanges(page: number, live: boolean) {
   const { session, revision, scope } = useWorkspace()
   const cache = useQueryClient()
@@ -72,6 +74,7 @@ export function useChanges(page: number, live: boolean) {
   })
 }
 
+/** Detail and timeline polling remain active independently of the list's Live switch. */
 export function useChange(id: string | undefined) {
   const { session, revision, scope } = useWorkspace()
   const { ready } = useTrackingAvailability()

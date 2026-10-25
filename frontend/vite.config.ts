@@ -3,6 +3,7 @@ import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig(({ mode }) => {
+  // Read server-only proxy targets here; the VITE_ prefix still controls which settings reach browser code.
   const environment = loadEnv(mode, process.cwd(), '')
   const change = {
     target: environment.CHANGE_API_PROXY_TARGET || 'http://localhost:8082',
@@ -29,6 +30,7 @@ export default defineConfig(({ mode }) => {
     preview: { proxy },
     test: {
       clearMocks: true,
+      // Route tests use a browser DOM; the real HTTP proxy test opts into Node with its file directive.
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
     },

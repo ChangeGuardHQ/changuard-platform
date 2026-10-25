@@ -7,6 +7,7 @@ import { ChangesPage } from '../pages/ChangesPage'
 import { ChangeDetailPage } from '../pages/ChangeDetailPage'
 import { ConnectionsPage } from '../pages/ConnectionsPage'
 
+/** Nested routes retain the workspace shell; Vite and Caddy must also serve index.html for deep links. */
 export function AppRoutes() {
   return (
     <Routes>
@@ -16,6 +17,7 @@ export function AppRoutes() {
         <Route path="changes" element={<ChangesPage />} />
         <Route path="changes/:id" element={<ChangeDetailPage />} />
         <Route path="connections" element={<ConnectionsPage />} />
+        {/* This browser route collects setup parameters; completion calls the authenticated connector API. */}
         <Route
           path="connections/github/callback"
           element={<ConnectionsPage />}

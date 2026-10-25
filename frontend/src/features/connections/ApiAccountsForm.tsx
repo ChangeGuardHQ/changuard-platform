@@ -18,6 +18,7 @@ export function ApiAccountsForm() {
   const { session, save, forget } = useWorkspace()
   const writes = useIsMutating()
   const [organization, setOrganization] = useState(session.organization)
+  // Local-development suggestions only: deploy/compose.yaml maps both API pairs to APP_USERNAME / APP_PASSWORD.
   const [changeUser, setChangeUser] = useState(
     session.change?.username ?? 'changeguard',
   )
@@ -55,6 +56,7 @@ export function ApiAccountsForm() {
     }
     setSaving(true)
     try {
+      // An empty password omits that account, supporting sessions with access to only one service.
       await save({
         organization: organization.trim(),
         change: changePassword

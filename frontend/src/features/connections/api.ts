@@ -71,6 +71,7 @@ export const githubApi = {
       )
     return items
   },
+  // GitHub-accessible repositories and ChangeGuard's persisted intake selection are separate catalogs.
   available: (
     organization: string,
     integration: string,
@@ -96,6 +97,7 @@ export const githubApi = {
       auth,
     ),
   complete: (state: string, installation: string, auth: BasicCredentials) => {
+    // This GET consumes single-use state; invoke it only through the callback's explicit completion mutation.
     const parameters = new URLSearchParams({
       state,
       installation_id: installation,

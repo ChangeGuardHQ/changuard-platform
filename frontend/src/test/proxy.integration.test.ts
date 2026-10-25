@@ -55,6 +55,7 @@ async function upstream(service: string) {
 }
 
 beforeAll(async () => {
+  // Temporary loopback upstreams replace deployment targets before Vite loads its proxy configuration.
   vi.stubEnv('CHANGE_API_PROXY_TARGET', await upstream('change'))
   vi.stubEnv('CONNECTOR_API_PROXY_TARGET', await upstream('connector'))
   vite = await createServer({
@@ -69,6 +70,7 @@ beforeAll(async () => {
 }, 20000)
 
 afterAll(async () => {
+  // Close real listeners before restoring proxy targets so this fixture cannot outlive its test suite.
   await vite?.close()
   await Promise.all(
     upstreams.map(

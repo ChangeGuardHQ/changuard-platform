@@ -19,6 +19,7 @@ import { useRepositoryCatalog } from './repositories'
 /** Draft controls never change the applied scope or query until the user explicitly applies them. */
 export function TrackingScopePicker() {
   const { scope } = useWorkspace()
+  // Applying a different scope resets drafts; a repository rename retains the same immutable identity.
   return <ScopeForm key={trackingKey(scope)} />
 }
 
