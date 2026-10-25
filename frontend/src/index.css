@@ -1,3 +1,4 @@
+/* Preserve space for compact navigation and forms while allowing pages to grow beyond the viewport. */
 html {
   min-width: 320px;
   min-height: 100%;
@@ -8,6 +9,7 @@ body {
   min-height: 100vh;
 }
 
+/* Router links inherit their surrounding theme; individual controls supply their own emphasis. */
 a {
   color: inherit;
   text-decoration: none;

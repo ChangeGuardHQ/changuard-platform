@@ -47,6 +47,7 @@ COPY --from=build /app/dist /srv
 USER 10001:10001
 # Host ports 80/443 map to these unprivileged container ports in the EC2 stack.
 EXPOSE 8080 8443
+# This checks Caddy liveness; public certificate issuance and API health need their own verification.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
     CMD wget -q --spider http://127.0.0.1:9090/healthz || exit 1
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

@@ -85,6 +85,7 @@ export function isChange(value: unknown): value is Change {
   )
 }
 
+// Counts must agree with page size before the view uses them to correct an out-of-range page.
 export function isChangePage(value: unknown): value is ChangePage {
   return (
     record(value) &&
@@ -101,6 +102,7 @@ export function isChangePage(value: unknown): value is ChangePage {
   )
 }
 
+// Validate shape here; the query additionally binds the timeline to its requested change and organization.
 export function isTimeline(value: unknown): value is ChangeTimeline {
   return (
     record(value) &&

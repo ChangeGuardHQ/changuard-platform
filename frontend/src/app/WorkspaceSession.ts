@@ -12,6 +12,7 @@ export type TrackingScope =
   | { kind: 'organization' }
   | { kind: 'repository'; repositoryId: string; fullName: string }
 
+// Repository renames are display metadata and must not change cache identity; null requires an explicit scope choice.
 export const trackingKey = (scope: TrackingScope | null) =>
   scope?.kind === 'repository'
     ? `repository:${scope.repositoryId}`
@@ -19,6 +20,7 @@ export const trackingKey = (scope: TrackingScope | null) =>
 
 type WorkspaceContextValue = {
   session: WorkspaceSession
+  // A credential-free generation number isolates accounts without putting passwords in query keys.
   revision: number
   save: (session: WorkspaceSession) => Promise<void>
   forget: () => Promise<void>

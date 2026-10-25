@@ -5,6 +5,7 @@ type SectionPageProps = {
   title: string
 }
 
+/** Keep Services and Activity visibly awaiting a data source until their API contracts are implemented. */
 export function SectionPage({ title }: SectionPageProps) {
   usePageTitle(title)
 

@@ -1,5 +1,6 @@
 import { Grid, Paper, Typography } from '@mui/material'
 
+// These describe the product direction; live records and connection status belong to the API-backed views.
 const questions = [
   {
     number: '01',

@@ -8,9 +8,11 @@
 }
 
 # A hostname enables automatic public HTTPS; :8080 supports isolated HTTP container tests.
+# EC2 Compose adds https:// to deploy/.env's bare hostname; replace the template IP before starting.
 {$SITE_ADDRESS::8080} {
 	root * /srv
 	encode gzip
+	# Keep request access logging off: GitHub setup query strings contain single-use state.
 	header {
 		-Server
 		Referrer-Policy no-referrer
@@ -29,6 +31,7 @@
 		header Cache-Control no-store
 		reverse_proxy {$CONNECTOR_API_PROXY_TARGET:connector-service:8081}
 	}
+	# Publish the consumer's health through the API boundary while keeping other actuator routes internal.
 	handle /api/projection-health {
 		header Cache-Control no-store
 		rewrite * /actuator/health/projection

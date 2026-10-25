@@ -3,6 +3,7 @@ import { Button, Stack, Typography } from '@mui/material'
 import { Link } from 'react-router-dom'
 import { usePageTitle } from '../hooks/usePageTitle'
 
+/** Recover unknown browser routes inside the shared shell; API route misses are handled by the proxy. */
 export function NotFoundPage() {
   usePageTitle('Page not found')
 

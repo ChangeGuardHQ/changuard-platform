@@ -6,6 +6,7 @@ import { queryClient } from './queryClient'
 import { theme } from './theme'
 import { WorkspaceSessionProvider } from './WorkspaceSessionProvider'
 
+/** Keep the query provider above workspace state so account changes can cancel and clear shared reads. */
 function App() {
   return (
     <ThemeProvider theme={theme}>

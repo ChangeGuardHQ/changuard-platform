@@ -69,6 +69,7 @@ export function ConnectionsPage() {
       {health.error && (
         <ApiFailure error={health.error} retry={() => void health.refetch()} />
       )}
+      {/* A new account revision remounts drafts and setup controls after the provider clears cached reads. */}
       <ApiAccountsForm key={`accounts-${revision}`} />
       {callback ? (
         <GitHubCallback key={`callback-${revision}`} />

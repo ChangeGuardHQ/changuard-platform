@@ -29,6 +29,7 @@ export function RepositorySelection({
 }) {
   const { session, revision } = useWorkspace()
   const cache = useQueryClient()
+  // null follows the last saved selection; an empty Set is an explicit draft to stop this installation's intake.
   const [draft, setDraft] = useState<Set<string> | null>(null)
   const [saved, setSaved] = useState(false)
   const query = useQuery({
@@ -41,6 +42,7 @@ export function RepositorySelection({
     retry: retryRead,
     queryFn: async ({ signal }) => {
       const options = { auth: session.connector, signal }
+      // A complete-set save needs both catalogs; either read failing must keep the combined result unavailable.
       const [available, selected] = await Promise.all([
         githubApi.available(
           session.organization,
@@ -96,6 +98,7 @@ export function RepositorySelection({
     ...(query.data?.available ?? []),
     ...unavailable,
   ]
+  // Require an explicit decision about inaccessible selections before sending the replacement set.
   const blocked = [...selected].some((id) => !availableIds.has(id))
   // An acknowledged save can retain its accepted draft after a failed verification read; that draft is not unsaved.
   const dirty = draft !== null && !saved

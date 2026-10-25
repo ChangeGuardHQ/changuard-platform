@@ -19,6 +19,7 @@ import { retryRead, validProviderId } from '../../services/apiClient'
 import { githubApi } from './api'
 import { RepositorySelection } from './RepositorySelection'
 
+/** Coordinate installation through the connector; App keys and GitHub token creation stay on the server. */
 export function GitHubSetup() {
   const { session, revision } = useWorkspace()
   const [installationUrl, setInstallationUrl] = useState('')
@@ -30,6 +31,7 @@ export function GitHubSetup() {
       githubApi.list(session.organization, { auth: session.connector, signal }),
   })
   const start = useMutation({
+    // Starting allocates expiring setup state; repeating it requires another deliberate click.
     retry: false,
     mutationFn: async () => {
       if (!session.connector)
@@ -197,6 +199,7 @@ export function GitHubCallback() {
   const navigate = useNavigate()
   const state = parameters.get('state') || ''
   const installation = parameters.get('installation_id') || ''
+  // Reject ambiguous parameters locally; the connector still verifies setup state and installation ownership.
   const valid = Boolean(
     parameters.getAll('state').length === 1 &&
     parameters.getAll('installation_id').length === 1 &&
@@ -256,6 +259,7 @@ export function GitHubCallback() {
             </Alert>
             <Button
               onClick={async () => {
+                // Reapply the server-confirmed workspace so caches and scope reset before selecting intake.
                 await save({
                   ...session,
                   organization: complete.data.organizationId,

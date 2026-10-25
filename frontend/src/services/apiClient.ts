@@ -2,6 +2,7 @@ export type BasicCredentials = { username: string; password: string }
 export type RequestOptions = {
   auth?: BasicCredentials
   signal?: AbortSignal
+  // Callers encode exact provider-ID literals before transport; Number serialization could lose their digits.
   jsonBody?: string
   headers?: Record<string, string>
 }
@@ -10,6 +11,7 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(
   /\/+$/,
   '',
 )
+// Convert only known provider IDs to strings; ordinary counts and PR numbers retain their numeric contracts.
 const identifierFields = new Set([
   'repositoryId',
   'ownerId',
@@ -17,6 +19,7 @@ const identifierFields = new Set([
   'githubAccountId',
 ])
 
+/** Preserve HTTP status for retry and cache-visibility decisions while presenting a controlled message. */
 export class ApiError extends Error {
   readonly status: number
   constructor(status: number, message: string) {
@@ -26,14 +29,16 @@ export class ApiError extends Error {
   }
 }
 
-/** A response outside the requested scope is unsafe to display or retry as a transient network failure. */
+/** An incompatible or out-of-scope response is unsafe to display or retry as a transient network failure. */
 export class ClientDataError extends Error {}
 
+// Retry a transient read once; invalid payloads and client errors require explicit correction or refresh.
 export const retryRead = (attempt: number, error: Error) =>
   !(error instanceof ClientDataError) &&
   !(error instanceof ApiError && error.status < 500) &&
   attempt < 1
 
+// Retained query data must disappear when authorization or response validation no longer permits its display.
 export const accessDenied = (error: Error | null) =>
   error instanceof ClientDataError ||
   (error instanceof ApiError && (error.status === 401 || error.status === 403))
@@ -48,6 +53,7 @@ export function parseApiJson(text: string): unknown {
     text,
     (key: string, value: unknown, context?: { source?: string }) => {
       if (!identifierFields.has(key) || typeof value !== 'number') return value
+      // JSON.parse may already have rounded value; the original token retains every provider-ID digit.
       const source = context?.source
       if (source && /^[1-9]\d*$/.test(source)) return source
       if (Number.isSafeInteger(value) && value > 0) return String(value)
@@ -88,6 +94,7 @@ async function request<T>(
     ...(options.jsonBody !== undefined ? { body: options.jsonBody } : {}),
   })
   if (!response.ok) {
+    // Avoid reflecting backend response bodies, which may include internal details or setup state.
     const messages: Record<number, string> = {
       400: 'Request rejected. Check the input, or restart GitHub setup if its state has expired.',
       409: 'The GitHub connection changed. Refresh it before trying again.',
@@ -102,6 +109,7 @@ async function request<T>(
         `API request failed with ${response.status} ${response.statusText}`,
     )
   }
+  // Repository selection can succeed without returning a JSON document.
   if (response.status === 204) return undefined as T
   // Hosted and local API routes must return JSON; an HTML fallback is a routing failure.
   if (!response.headers.get('content-type')?.includes('json')) {
