@@ -2256,7 +2256,7 @@ exact versions matching the lockfile.
 | CodeQL bundle | `2.27.1` |
 | Semgrep CE | `1.179.0` (image digest pinned) |
 | Semgrep rules | `a84ff9cc2453ca91d581380de4b8b3f272f6f4be` |
-| Trivy | `0.70.0` |
+| Trivy | `0.76.1` |
 | Docker Buildx | `0.37.1` |
 | BuildKit | `0.33.1` |
 | Dockerfile frontend | `1.27.1` |

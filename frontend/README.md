@@ -174,6 +174,10 @@ Vite is pinned to 8.3.5 with its matching lockfile to address the advisories aff
 Caddy and the static image. CI logs summarize audit and Trivy findings while keeping
 their complete JSON reports as artifacts and retaining the HIGH/CRITICAL failure gate.
 
+The static runtime pins Alpine `musl` and `musl-utils` to `1.2.6-r3`, applying
+the `CVE-2026-107891` regcomp backport to its digest-pinned Alpine base. CI uses
+Trivy 0.76.1 and retains the vulnerability and secret checks.
+
 The lockfile also pins jsdom's compatible transitive Undici dependency to 8.12.3,
 which addresses the EventSource, integrity-check and content-encoding advisories in
 8.11.2. No production dependency or audit exception is added for this test dependency.

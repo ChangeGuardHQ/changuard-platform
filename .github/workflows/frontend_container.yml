@@ -70,7 +70,8 @@ jobs:
         with:
           scan-type: image
           image-ref: changuard-frontend:ci
-          version: v0.70.0
+          # Use the current patched scanner; severity and failure policy remain explicit below.
+          version: v0.76.1
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: "1"

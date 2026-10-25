@@ -35,7 +35,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # One small runtime serves the SPA, proxies API requests, and manages HTTPS on EC2.
 FROM mirror.gcr.io/library/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 ENV XDG_DATA_HOME=/data XDG_CONFIG_HOME=/config
-RUN apk add --no-cache ca-certificates \
+# Match the backend's musl regcomp backport (CVE-2026-107891), keeping libc utilities aligned.
+RUN apk add --no-cache ca-certificates musl=1.2.6-r3 musl-utils=1.2.6-r3 \
     && addgroup -S -g 10001 changeguard \
     && adduser -S -D -H -u 10001 -G changeguard changeguard \
     && mkdir -p /data /config /srv /etc/caddy \

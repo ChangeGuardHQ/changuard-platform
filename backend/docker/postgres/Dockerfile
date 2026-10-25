@@ -2,11 +2,14 @@
 FROM mirror.gcr.io/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
 LABEL org.opencontainers.image.title="ChangeGuard PostgreSQL" \
-      org.opencontainers.image.version="18.6-security.1"
+      org.opencontainers.image.version="18.6-security.2"
 
+# Alpine backports the regcomp integer-overflow fix (CVE-2026-107891) in musl 1.2.6-r3.
+# Keep the C library and its utilities aligned on the pinned base image.
+# Brotli 1.2.1-r0 fixes the decoder out-of-bounds write (CVE-2026-111497).
 # Upstream gosu 1.19 embeds Go 1.24.6. Use Alpine's native privilege helper
 # for the entrypoint's sole gosu call, preserving exec and signal behavior.
-RUN apk add --no-cache su-exec=0.3-r0 \
+RUN apk add --no-cache brotli-libs=1.2.1-r0 musl=1.2.6-r3 musl-utils=1.2.6-r3 su-exec=0.3-r0 \
     && grep -q 'exec gosu postgres ' /usr/local/bin/docker-entrypoint.sh \
     && sed -i 's/exec gosu postgres /exec su-exec postgres /' /usr/local/bin/docker-entrypoint.sh \
     && ! grep -wq gosu /usr/local/bin/docker-entrypoint.sh \

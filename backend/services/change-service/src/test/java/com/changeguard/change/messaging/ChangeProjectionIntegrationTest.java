@@ -62,14 +62,15 @@ class ChangeProjectionIntegrationTest {
     private static final String TOPIC = "changeguard.projection-test.v1";
     private static final String GROUP = "change-projection-wire";
     private static final Network NETWORK = Network.newNetwork();
+    // Match Compose's patched runtimes so the wire test covers the deployed native-library revisions.
     @Container
     static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse(
-            System.getProperty("changeguard.test.kafka-image", "changuard-kafka:4.2.2-security.2"))
+            System.getProperty("changeguard.test.kafka-image", "changuard-kafka:4.2.2-security.3"))
             .asCompatibleSubstituteFor("apache/kafka"))
             .withNetwork(NETWORK).withNetworkAliases("kafka").withListener("kafka:19092");
     @Container
     static final GenericContainer<?> REGISTRY = new GenericContainer<>(
-            System.getProperty("changeguard.test.schema-registry-image", "changuard-schema-registry:8.3.2-security.2"))
+            System.getProperty("changeguard.test.schema-registry-image", "changuard-schema-registry:8.3.2-security.3"))
             .withNetwork(NETWORK).withExposedPorts(8081)
             .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:19092")
             .dependsOn(KAFKA).waitingFor(Wait.forHttp("/subjects").forStatusCode(200))

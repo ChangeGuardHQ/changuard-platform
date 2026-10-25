@@ -30,12 +30,14 @@ RUN set -eu; \
 FROM mirror.gcr.io/apache/kafka:4.2.2@sha256:1213eb3943d551e5ed1fca7a4e109001cee35770b66a02a0c37a8964efe09b69 AS runtime
 
 LABEL org.opencontainers.image.title="ChangeGuard Kafka" \
-      org.opencontainers.image.version="4.2.2-security.2"
+      org.opencontainers.image.version="4.2.2-security.3"
 USER root
 # Replace vulnerable libexpat, LZ4, and Jackson modules, retaining annotations 2.21
 # as specified by the Jackson 2.21.7 BOM. Vendor CDS archives use the old JARs.
 # Alpine 2.9.0-r0 closes the newer XML_ParseBuffer over-read (CVE-2026-77214).
-RUN apk add --no-cache libexpat=2.9.0-r0 \
+# musl 1.2.6-r3 backports the regcomp integer-overflow fix (CVE-2026-107891).
+# Brotli 1.2.1-r0 fixes the decoder out-of-bounds write (CVE-2026-111497).
+RUN apk add --no-cache libexpat=2.9.0-r0 brotli-libs=1.2.1-r0 musl=1.2.6-r3 musl-utils=1.2.6-r3 \
     && rm -f /opt/kafka/libs/jackson-*-2.21.6.jar \
         /opt/kafka/libs/lz4-java-*.jar \
         /opt/kafka/kafka.jsa /opt/kafka/storage.jsa \

@@ -1,7 +1,7 @@
 # ChangeGuard PostgreSQL image
 
 **Status: implemented.** Compose and backend CI build
-`changuard-postgres:18.6-security.1` from the official PostgreSQL 18.6 Alpine 3.24
+`changuard-postgres:18.6-security.2` from the official PostgreSQL 18.6 Alpine 3.24
 image pinned to its multi-platform digest. The server version, PostgreSQL 18 data
 layout, and SQL storage format are retained. Connector-owned tables and migrations
 are described in [connector persistence](../../README.md#connector-persistence).
@@ -20,6 +20,11 @@ package, substitutes the entrypoint's single privilege-drop call, and removes th
 old binary. Build assertions fail if the expected entrypoint changes or the helper
 cannot switch to the PostgreSQL operating-system user. The final image defaults to
 `USER postgres` and provides a readiness health check.
+
+The `security.2` runtime also pins `brotli-libs=1.2.1-r0` for
+`CVE-2026-111497` and aligned `musl`/`musl-utils=1.2.6-r3` for
+`CVE-2026-107891`. These are Alpine backports applied to the existing pinned base;
+PostgreSQL remains at 18.6 and existing data volumes retain their format.
 
 ```mermaid
 flowchart TD
@@ -101,7 +106,7 @@ Run from the repository root:
 ```sh
 sh backend/docker/postgres/smoke-test.sh
 cd backend/services/connector-service
-./mvnw -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.1 verify
+./mvnw -Dchangeguard.test.postgres-image=changuard-postgres:18.6-security.2 verify
 ```
 
 Without that test property, Testcontainers uses the pinned upstream PostgreSQL

@@ -63,6 +63,11 @@ restoring a cache populated by an incompatible wrapper version.
   after failures, and container cleanup. Shared version documentation remains
   in the root [CI/CD guide](../../README.md#25-cicd).
 
+Trivy is pinned to 0.76.1 in both source and container workflows. The
+HIGH/CRITICAL vulnerability and secret gates remain enabled; diagnostic JSON
+reports and safe package/fixed-version summaries are retained after failures.
+Scanner warnings and update notices are separate from the actual findings.
+
 Run `actionlint` from the repository root after changing workflows. Application
 tests and container smoke tests run in GitHub Actions when the entry points are
 triggered.
