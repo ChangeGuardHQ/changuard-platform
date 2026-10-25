@@ -1,7 +1,7 @@
 # ChangeGuard Schema Registry
 
 **Status: implemented.** Compose and backend integration tests use
-`changuard-schema-registry:8.3.2-security.2`, which runs the Confluent Schema Registry
+`changuard-schema-registry:8.3.2-security.3`, which runs the Confluent Schema Registry
 8.3.2 core server with the backend's patched dependencies. The connector registers
 the [shared V1 code-event catalog](../../event-contracts/README.md) before creating
 its Kafka producer.
@@ -18,6 +18,9 @@ the server's leader-election API; the connector uses Spring Boot's managed clien
 Registry's core and EE10 Jetty modules use the consistent 12.0.37 server line.
 The shared parent pins LZ4 Java 1.11.4 for `CVE-2026-106451`; the `security.2`
 runtime replaces the earlier image's vulnerable 1.11.1 dependency.
+The `security.3` image additionally pins Alpine `brotli-libs=1.2.1-r0`
+(`CVE-2026-111497`) and aligned `musl`/`musl-utils=1.2.6-r3`
+(`CVE-2026-107891`); the server version and Kafka-backed storage remain unchanged.
 
 ```mermaid
 flowchart TD
@@ -58,7 +61,7 @@ and Registry access controls remain deployment configuration.
 
 | Setting | Local value |
 | --- | --- |
-| `SCHEMA_REGISTRY_IMAGE` | `changuard-schema-registry:8.3.2-security.2` |
+| `SCHEMA_REGISTRY_IMAGE` | `changuard-schema-registry:8.3.2-security.3` |
 | `SCHEMA_REGISTRY_PORT` | `8083` on localhost; Registry container listens on `8081`. |
 | `SCHEMA_REGISTRY_URL` | `http://localhost:8083` for Maven clients; Compose supplies `http://schema-registry:8081`. |
 | `SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS` | `PLAINTEXT://kafka:9092` in Compose. |

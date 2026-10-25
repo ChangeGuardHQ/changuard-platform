@@ -59,7 +59,8 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
-          version: v0.70.0
+          # Use the current patched scanner; severity and failure policy remain explicit below.
+          version: v0.76.1
           scan-ref: frontend
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
@@ -73,7 +74,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
-          version: v0.70.0
+          version: v0.76.1
           scan-ref: .
           # Exclude generated dependencies and build output from configuration checks.
           skip-dirs: .cache,frontend/node_modules,frontend/dist,backend/services/connector-service/target

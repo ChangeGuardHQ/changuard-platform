@@ -18,11 +18,12 @@ Browser (React + TypeScript + Material UI)
                     └── Kafka event stream
 ```
 
-This diagram is the production target; the Gateway/BFF remains planned. For local
-visual testing, the browser uses the same-origin Vite `/api` proxy to call scoped
-change reads and GitHub connection APIs. Vite forwards authentication and CSRF,
-without injecting privileged credentials or disabling backend security. The browser
-does not connect to Kafka or databases. See [visual testing](../visual-testing.md).
+This diagram is the production target; the aggregating Gateway/BFF remains planned.
+Visual testing uses a static Caddy HTTPS proxy on EC2 and Vite's proxy for local
+development to call scoped change reads and GitHub connection APIs. Both preserve
+authentication and CSRF without injecting privileged credentials or disabling backend security. The browser
+does not connect to Kafka or databases. See [AWS deployment](../../deploy/README.md)
+and [local visual testing](../visual-testing.md).
 
 ## Frontend boundaries
 
@@ -43,6 +44,11 @@ does not connect to Kafka or databases. See [visual testing](../visual-testing.m
 - Local component state is reserved for transient interaction state.
 - API credentials live in the tab-scoped workspace context. Changing identity cancels
   requests and clears queries; secrets never become URL, storage, or query-key state.
+- The same context owns one explicitly applied Organization or Single repository
+  scope. Query keys include the scope, and identity changes reset it. Named repository
+  choices come from saved active connector selections, with immutable IDs preserved.
+  Failed/revoked selection checks pause repository reads; detail/timeline responses
+  are checked before rendering. Draft intake selections never implicitly change a view.
 - Installation completion and repository selection are explicit mutations with CSRF
   where required. Single-use callback completion is never polled or automatically retried.
 - API calls flow through `src/services/apiClient.ts`; feature hooks should call that boundary

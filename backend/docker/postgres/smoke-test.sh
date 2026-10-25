@@ -3,7 +3,8 @@
 set -eu
 
 pg_smoke_upstream='mirror.gcr.io/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
-pg_smoke_image="${POSTGRES_IMAGE:-changuard-postgres:18.6-security.1}"
+# Keep the default aligned with Compose and CI so retained data is tested through each security revision.
+pg_smoke_image="${POSTGRES_IMAGE:-changuard-postgres:18.6-security.2}"
 pg_smoke_suffix="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 pg_smoke_container="changeguard-postgres-smoke-${pg_smoke_suffix}"
 pg_smoke_volume="changeguard-postgres-smoke-data-${pg_smoke_suffix}"

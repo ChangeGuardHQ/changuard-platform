@@ -577,18 +577,21 @@ flowchart TB
 
 ## 7.3 Frontend system
 
-**Status: live code views and GitHub connection UI implemented for local visual testing.**
+**Status: live code views and GitHub connection UI implemented for local and AWS visual testing.**
 React supplies a tab-scoped workspace, authenticated API transport, scoped Changes
-list/detail/timeline queries, and GitHub installation/repository selection. Services
-and Activity remain placeholders. The production BFF and OAuth/OIDC are planned.
-See [visual testing](docs/visual-testing.md) for App setup and expected behavior.
+list/detail/timeline queries, and GitHub installation/repository selection.
+Tracking requires explicitly applying one internal organization or one named GitHub
+repository; saved event-intake selections and the current view are separate controls.
+Services and Activity remain placeholders. The production BFF and OAuth/OIDC are planned.
+See [AWS deployment](deploy/README.md) for the single-EC2 HTTPS stack and
+[local visual testing](docs/visual-testing.md) for App setup and expected behavior.
 
 ```mermaid
 flowchart TD
     App["App: theme, query provider,<br/>workspace and router"] --> Layout["AppLayout and feature routes"]
     Layout --> Query["TanStack Query: scoped reads,<br/>polling and explicit setup mutations"]
     Query --> Client["API client: Basic / CSRF /<br/>exact provider IDs"]
-    Client --> Proxy["Same-origin Vite proxy:<br/>local development"]
+    Client --> Proxy["Same-origin Caddy HTTPS proxy<br/>or local Vite proxy"]
     Proxy --> Change["Change-service read API"]
     Proxy --> Connector["Connector GitHub connection APIs"]
     Client -.-> BFF["Production Gateway / BFF:<br/>planned"]
@@ -2253,7 +2256,7 @@ exact versions matching the lockfile.
 | CodeQL bundle | `2.27.1` |
 | Semgrep CE | `1.179.0` (image digest pinned) |
 | Semgrep rules | `a84ff9cc2453ca91d581380de4b8b3f272f6f4be` |
-| Trivy | `0.70.0` |
+| Trivy | `0.76.1` |
 | Docker Buildx | `0.37.1` |
 | BuildKit | `0.33.1` |
 | Dockerfile frontend | `1.27.1` |
@@ -2269,11 +2272,15 @@ The build tooling versions follow the
 
 # 26. Deployment Strategy
 
-**Status: planned V1 staging/production architecture; local Compose is implemented.**
-The AWS direction uses Kubernetes/EKS for application containers and managed
-Kafka, PostgreSQL, and Redis for state. ECR stores deployable images; managed
-secrets and KMS protect connector credentials. Exact ingress, managed services,
-backup policy, and infrastructure modules remain implementation decisions.
+**Status: single-EC2 visual-test deployment prepared; managed production architecture remains planned.**
+The [AWS visual-test stack](deploy/README.md) runs a compiled frontend with Caddy
+HTTPS, both APIs, PostgreSQL, Kafka and Schema Registry on one Ubuntu instance.
+Only ports 80/443 are published. A temporary public-IP hostname supports testing
+without registering a domain; one scoped test account serves both APIs. The
+standalone Compose file needs no local overlays or webhook forwarder.
+
+The diagram below remains a future production direction. Managed services,
+high availability and platform identity are separate from the small visual-test stack.
 
 ```mermaid
 flowchart LR

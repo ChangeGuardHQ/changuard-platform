@@ -8,8 +8,7 @@ import {
   GitHubCallback,
   GitHubSetup,
 } from '../features/connections/GitHubSetup'
-import { retryRead } from '../features/changes/queries'
-import { apiClient } from '../services/apiClient'
+import { apiClient, retryRead } from '../services/apiClient'
 import { usePageTitle } from '../hooks/usePageTitle'
 
 type ProjectionHealth = {

@@ -21,6 +21,11 @@ Backend verification uses a matrix for `connector-service` and `change-service`,
 building each through the Maven reactor with its shared dependencies. Backend
 container checks start both services with PostgreSQL, Kafka, and Schema Registry. Frontend
 verification runs lint, TypeScript checks, Vitest, and the production build.
+Frontend container checks render the standalone AWS configuration with invented
+credentials, build the static and development targets, and verify SPA routes,
+auth/CSRF forwarding, signed bytes and HTTPS using disposable containers and a test
+CA. They do not deploy infrastructure or request public certificates. Changes under
+`deploy/` trigger these checks as well.
 
 Backend dependency scans first install the reactor through
 [`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The CodeQL manual build
@@ -57,6 +62,11 @@ restoring a cache populated by an incompatible wrapper version.
 - Preserve pinned action SHAs, tool versions, artifact names, report uploads
   after failures, and container cleanup. Shared version documentation remains
   in the root [CI/CD guide](../../README.md#25-cicd).
+
+Trivy is pinned to 0.76.1 in both source and container workflows. The
+HIGH/CRITICAL vulnerability and secret gates remain enabled; diagnostic JSON
+reports and safe package/fixed-version summaries are retained after failures.
+Scanner warnings and update notices are separate from the actual findings.
 
 Run `actionlint` from the repository root after changing workflows. Application
 tests and container smoke tests run in GitHub Actions when the entry points are

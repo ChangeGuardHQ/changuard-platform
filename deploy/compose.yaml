@@ -1,0 +1,181 @@
+# Standalone single-EC2 visual-test stack: docker compose --env-file deploy/.env -f deploy/compose.yaml up --build -d.
+# No development bind mounts, host database/broker ports, or additional Compose overlays are needed.
+name: changeguard-visual
+
+x-service: &service
+  init: true
+  restart: unless-stopped
+  # Bound logs on the instance's disk; persistent business data uses the named volumes below.
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+  security_opt:
+    - no-new-privileges:true
+
+x-application: &application
+  <<: *service
+  mem_limit: 1024m
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  cap_drop:
+    - ALL
+  stop_grace_period: 30s
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    schema-registry:
+      condition: service_healthy
+
+x-api-environment: &api-environment
+  # The proxy is the only public ingress; forward HTTPS so CSRF cookies retain their Secure flag.
+  SERVER_FORWARD_HEADERS_STRATEGY: framework
+  SPRING_SECURITY_USER_NAME: ${APP_USERNAME:-tester}
+  SPRING_SECURITY_USER_PASSWORD: ${APP_PASSWORD:?Set a private visual-test account password}
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  SCHEMA_REGISTRY_URL: http://schema-registry:8081
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError"
+  LOGGING_LEVEL_COM_CHANGEGUARD: INFO
+
+services:
+  frontend:
+    <<: *service
+    image: changuard-frontend:visual
+    build:
+      context: ../frontend
+      args:
+        # This is public display/scoping configuration, never an account password or App key.
+        VITE_ORGANIZATION_ID: ${ORGANIZATION_ID:-visual-test}
+    environment:
+      # Require HTTPS even if someone copies an HTTP-only local test configuration.
+      SITE_ADDRESS: https://${SITE_ADDRESS:?Set the EC2 public-IP hostname or your own domain}
+    ports:
+      - "80:8080"
+      - "443:8443"
+    mem_limit: 128m
+    read_only: true
+    cap_drop:
+      - ALL
+    volumes:
+      # Keep ACME account/certificates across updates to avoid unnecessary certificate requests.
+      - certificates:/data
+    depends_on:
+      connector-service:
+        condition: service_healthy
+      change-service:
+        condition: service_healthy
+
+  connector-service:
+    <<: *application
+    image: changuard-connector-service:visual
+    build:
+      context: ../backend
+      dockerfile: services/connector-service/Dockerfile
+    environment:
+      <<: *api-environment
+      SERVER_PORT: "8081"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/changeguard
+      SPRING_DATASOURCE_USERNAME: changeguard
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set a private database password}
+      GITHUB_CONNECTION_ENABLED: "true"
+      GITHUB_CODE_LIFECYCLE_ENABLED: "true"
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?Set the GitHub App ID}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:?Set the GitHub App slug}
+      GITHUB_APP_PRIVATE_KEY_PATH: /run/secrets/github_app_key
+      GITHUB_INSTALLATION_STATE_SECRET: ${GITHUB_INSTALLATION_STATE_SECRET:?Set a separate state secret of at least 32 bytes}
+      GITHUB_CONNECTION_ORGANIZATION_ID: ${ORGANIZATION_ID:-visual-test}
+      GITHUB_CONNECTION_ACCOUNT_ID: ${GITHUB_CONNECTION_ACCOUNT_ID:?Set the numeric GitHub repository-owner account ID}
+      GITHUB_CONNECTION_ADMINISTRATORS: ${APP_USERNAME:-tester}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Set the GitHub App webhook secret}
+    secrets:
+      - github_app_key
+
+  change-service:
+    <<: *application
+    image: changuard-change-service:visual
+    build:
+      context: ../backend
+      dockerfile: services/change-service/Dockerfile
+    environment:
+      <<: *api-environment
+      SERVER_PORT: "8082"
+      DB_URL: jdbc:postgresql://postgres:5432/changeguard?currentSchema=change
+      DB_USERNAME: changeguard
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set a private database password}
+      CHANGE_ORGANIZATION_ID: ${ORGANIZATION_ID:-visual-test}
+      CHANGE_ORGANIZATION_READERS: ${APP_USERNAME:-tester}
+
+  postgres:
+    <<: *service
+    # These infrastructure revisions also run in local Compose and CI's integration tests.
+    image: changuard-postgres:18.6-security.2
+    build:
+      context: ../backend/docker/postgres
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: changeguard
+      POSTGRES_USER: changeguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a private database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    # The patched image owns its readiness check and runs as postgres.
+
+  kafka:
+    <<: *service
+    image: changuard-kafka:4.2.2-security.3
+    build:
+      context: ../backend/docker/kafka
+    mem_limit: 1024m
+    environment:
+      # One durable KRaft broker is sufficient for this single-host test deployment.
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  schema-registry:
+    <<: *service
+    image: changuard-schema-registry:8.3.2-security.3
+    build:
+      context: ../backend
+      dockerfile: docker/schema-registry/Dockerfile
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+secrets:
+  github_app_key:
+    file: ${GITHUB_APP_PRIVATE_KEY_FILE:?Set the external GitHub App PEM file path}
+
+# Named volumes survive container replacement and normal compose down.
+volumes:
+  certificates:
+  postgres_data:
+  kafka_data:

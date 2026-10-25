@@ -20,7 +20,11 @@ jobs:
           persist-credentials: false
 
       - name: Validate Compose configuration
-        run: docker compose config --quiet
+        # Render the AWS stack with isolated fixtures; never read deployment credentials in CI.
+        run: |
+          docker compose config --quiet
+          python3 -m unittest discover -s deploy -p 'test_*.py'
+          bash -n deploy/ec2-user-data.sh
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -39,18 +43,35 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      - name: Smoke test frontend container
-        run: |
-          docker run --detach --name frontend-ci --publish 127.0.0.1:5173:5173 changuard-frontend:ci
-          curl --fail --silent --show-error --retry 24 --retry-delay 5 --retry-all-errors http://localhost:5173/
+      - name: Build local development target
+        # Preserve the hot-reload image while the default Dockerfile target becomes the static runtime.
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          target: development
+          load: true
+          push: false
+          tags: changuard-frontend:development
+          cache-from: type=gha,scope=frontend
 
-      - name: Scan image OS packages, npm dependencies, and secrets
+      - name: Set up Node.js for container smoke tests
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.21.0"
+
+      - name: Smoke test static, HTTPS proxy, and development containers
+        # Disposable resources are removed by the script, including when an assertion fails.
+        run: |
+          node frontend/scripts/container-smoke.mjs
+
+      - name: Scan runtime OS packages, Caddy, and secrets
         if: always() && steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: changuard-frontend:ci
-          version: v0.70.0
+          # Use the current patched scanner; severity and failure policy remain explicit below.
+          version: v0.76.1
           scanners: vuln,secret
           severity: HIGH,CRITICAL
           exit-code: "1"
@@ -70,11 +91,3 @@ jobs:
           path: frontend-container-security.json
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Container diagnostics and cleanup
-        if: always()
-        run: |
-          if docker container inspect frontend-ci > /dev/null 2>&1; then
-            docker logs frontend-ci
-            docker rm --force frontend-ci
-          fi

@@ -1,6 +1,6 @@
 # Patched Kafka image
 
-Compose and backend CI build `changuard-kafka:4.2.2-security.2` from this directory.
+Compose and backend CI build `changuard-kafka:4.2.2-security.3` from this directory.
 The base is Apache Kafka 4.2.2, pinned to its multi-platform image digest. The
 broker version, startup configuration, and data-volume format stay at 4.2.2.
 
@@ -19,7 +19,7 @@ flowchart LR
     Base["Digest-pinned Apache Kafka<br/>base"] --> Patch["Patch libexpat; remove old<br/>JARs and CDS settings"]
     Verify -->|"copy verified JARs"| Runtime["Patched runtime as appuser"]
     Patch --> Runtime
-    Runtime --> Image["changuard-kafka:4.2.2-security.2"]
+    Runtime --> Image["changuard-kafka:4.2.2-security.3"]
     Image --> Compose["Local Compose broker"]
     Image --> CI["Backend CI smoke test and<br/>image scan"]
 ```
@@ -69,6 +69,11 @@ the following stable dependency patches:
 | Jackson core | `2.21.6` | `2.21.7` | `CVE-2026-89407`, `CVE-2026-89425` |
 | Jackson databind | `2.21.6` | `2.21.7` | `CVE-2026-91776`, `CVE-2026-91777` |
 | LZ4 Java | `1.11.2` | `1.11.4` | `CVE-2026-106451` |
+| Brotli libraries | `1.2.0-r1` | `1.2.1-r0` | `CVE-2026-111497` |
+| musl / musl-utils | `1.2.6-r2` | `1.2.6-r3` | `CVE-2026-107891` |
+
+The `security.3` image adds the Brotli and musl backports from Alpine 3.24.
+The broker and its data format remain at Kafka 4.2.2.
 
 Nine Jackson modules in the Kafka distribution are updated to 2.21.7;
 annotations remain at 2.21, matching the
@@ -103,7 +108,7 @@ Docker Compose options, for example `--project-name validation --env-file /tmp/v
 to test an isolated stack.
 
 Backend CI builds this image, runs the message test, and scans the resulting
-image with Trivy 0.70.0. The scan includes unfixed vulnerabilities and fails CI
+image with Trivy 0.76.1. The scan includes unfixed vulnerabilities and fails CI
 on HIGH/CRITICAL findings. Local validation on October 15, 2026 reproduced one
 HIGH LZ4 finding in `security.1`. Scanning `security.2` against the same database
 found zero HIGH/CRITICAL vulnerabilities or secret findings, and the broker

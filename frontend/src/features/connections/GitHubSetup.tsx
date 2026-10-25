@@ -15,7 +15,7 @@ import {
 import { GitHub, RefreshRounded } from '@mui/icons-material'
 import { useWorkspace } from '../../app/WorkspaceSession'
 import { ApiFailure, ConnectPrompt } from '../../components/common/ApiFeedback'
-import { retryRead } from '../changes/queries'
+import { retryRead, validProviderId } from '../../services/apiClient'
 import { githubApi } from './api'
 import { RepositorySelection } from './RepositorySelection'
 
@@ -42,6 +42,9 @@ export function GitHubSetup() {
       // An unexpected backend URL must never become a credential-phishing or script link.
       if (
         target.origin !== 'https://github.com' ||
+        target.username ||
+        target.password ||
+        target.hash ||
         !/^\/apps\/[^/]+\/installations\/new$/.test(target.pathname)
       )
         throw new Error(
@@ -113,6 +116,11 @@ export function GitHubSetup() {
               Refresh
             </Button>
           </Stack>
+          <Typography variant="body2" color="text.secondary">
+            These saved selections control which repositories send new events
+            into workspace {session.organization}. Choose Organization or Single
+            repository scope on Changes to control the view.
+          </Typography>
           {query.isLoading && (
             <CircularProgress
               aria-label="Loading GitHub connections"
@@ -190,7 +198,11 @@ export function GitHubCallback() {
   const state = parameters.get('state') || ''
   const installation = parameters.get('installation_id') || ''
   const valid = Boolean(
-    state && state.length <= 2048 && /^[1-9]\d{0,18}$/.test(installation),
+    parameters.getAll('state').length === 1 &&
+    parameters.getAll('installation_id').length === 1 &&
+    state.trim() &&
+    state.length <= 2048 &&
+    validProviderId(installation),
   )
   const complete = useMutation({
     retry: false,

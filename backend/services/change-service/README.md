@@ -126,9 +126,9 @@ or head SHA; the opening contract supplies those separately.
 Build the three hardened integration images from the repository root first:
 
 ```sh
-docker build --tag changuard-postgres:18.6-security.1 backend/docker/postgres
-docker build --tag changuard-kafka:4.2.2-security.2 backend/docker/kafka
-docker build --file backend/docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.2 backend
+docker build --tag changuard-postgres:18.6-security.2 backend/docker/postgres
+docker build --tag changuard-kafka:4.2.2-security.3 backend/docker/kafka
+docker build --file backend/docker/schema-registry/Dockerfile --tag changuard-schema-registry:8.3.2-security.3 backend
 sh backend/services/change-service/mvnw -f backend/pom.xml -pl services/change-service -am verify
 ```
 

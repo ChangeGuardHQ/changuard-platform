@@ -17,7 +17,8 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 FROM mirror.gcr.io/library/eclipse-temurin:21.0.12.1_1-jre-alpine-3.24@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS runtime
 # Apply Alpine's CVE-2026-77214 fix while retaining the pinned Temurin runtime.
-RUN apk add --no-cache libexpat=2.9.0-r0
+# Patch Brotli's decoder (CVE-2026-111497) and musl regcomp (CVE-2026-107891), keeping libc utilities aligned.
+RUN apk add --no-cache libexpat=2.9.0-r0 brotli-libs=1.2.1-r0 musl=1.2.6-r3 musl-utils=1.2.6-r3
 
 WORKDIR /app
 RUN addgroup -S -g 10001 changeguard \

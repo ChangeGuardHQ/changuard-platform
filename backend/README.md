@@ -173,12 +173,12 @@ plaintext listeners for local development and retains its data in the
 `kafka_data` volume. Database records persist in `postgres_data`, mounted at
 `/var/lib/postgresql` for PostgreSQL 18. Stop the stack with `docker compose down`;
 this retains both data volumes. PostgreSQL uses the locally built
-`changuard-postgres:18.6-security.1` image, based on the version/digest-pinned
+`changuard-postgres:18.6-security.2` image, based on the version/digest-pinned
 official 18.6 Alpine image with its vulnerable privilege helper replaced. See
 [PostgreSQL build, startup, and validation diagrams](docker/postgres/README.md).
 `POSTGRES_IMAGE` can override the Compose image. See [.env.example](../.env.example) for local defaults.
 
-Kafka uses the locally built `changuard-kafka:4.2.2-security.2` image, which
+Kafka uses the locally built `changuard-kafka:4.2.2-security.3` image, which
 patches the upstream image's Jackson, libexpat, and LZ4 vulnerabilities. All dependency
 versions are pinned, and downloaded JARs are checked against their published
 SHA-256 hashes. See the [Kafka image documentation](docker/kafka/README.md) for
@@ -314,6 +314,22 @@ same retry helper so connection resets do not immediately abort extraction;
 each attempt rebuilds the full reactor after CodeQL initialization. See the
 [CI helper](../.github/scripts/maven_with_retry.sh). The HIGH/CRITICAL gate
 continues to include unfixed findings.
+
+The October 25, 2026 image reports identify HIGH `CVE-2026-111497` in
+Alpine `brotli-libs 1.2.0-r1`. All five backend runtime Dockerfiles now pin
+`brotli-libs=1.2.1-r0` and aligned `musl`/`musl-utils=1.2.6-r3`, also applying
+the `CVE-2026-107891` regcomp backport. Infrastructure tags advance together in
+Compose, deployment, CI and integration-test defaults. Database/broker/server
+versions and persistent volumes retain their existing formats. The
+[Alpine Brotli package](https://github.com/alpinelinux/aports/blob/3.24-stable/main/brotli/APKBUILD)
+and [musl package](https://github.com/alpinelinux/aports/blob/3.24-stable/main/musl/APKBUILD)
+record these fixes.
+
+Trivy is pinned to 0.76.1 across source and container workflows. Its version
+notice, OS-support warning and missing-CVE-detail warning do not explain a
+HIGH/CRITICAL failure on their own: inspect the package/fixed-version summary
+or uploaded JSON report. Scans still include unfixed findings and secrets,
+with no vulnerability exclusions or relaxed failure policy.
 
 Both service verification jobs use the helper with tests enabled. Both wrappers
 pin Maven 3.10.0, and the shared CI cache key includes the wrapper properties as
