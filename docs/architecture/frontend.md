@@ -18,11 +18,12 @@ Browser (React + TypeScript + Material UI)
                     └── Kafka event stream
 ```
 
-This diagram is the production target; the Gateway/BFF remains planned. For local
-visual testing, the browser uses the same-origin Vite `/api` proxy to call scoped
-change reads and GitHub connection APIs. Vite forwards authentication and CSRF,
-without injecting privileged credentials or disabling backend security. The browser
-does not connect to Kafka or databases. See [visual testing](../visual-testing.md).
+This diagram is the production target; the aggregating Gateway/BFF remains planned.
+Visual testing uses a static Caddy HTTPS proxy on EC2 and Vite's proxy for local
+development to call scoped change reads and GitHub connection APIs. Both preserve
+authentication and CSRF without injecting privileged credentials or disabling backend security. The browser
+does not connect to Kafka or databases. See [AWS deployment](../../deploy/README.md)
+and [local visual testing](../visual-testing.md).
 
 ## Frontend boundaries
 

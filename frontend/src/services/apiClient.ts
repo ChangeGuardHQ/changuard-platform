@@ -87,9 +87,10 @@ async function request<T>(
     )
   }
   if (response.status === 204) return undefined as T
+  // Hosted and local API routes must return JSON; an HTML fallback is a routing failure.
   if (!response.headers.get('content-type')?.includes('json')) {
     throw new Error(
-      'The API returned an unexpected response. Check the development proxy targets.',
+      'The API returned an unexpected response. Check API routing and service availability.',
     )
   }
   return parseApiJson(await response.text()) as T

@@ -1,0 +1,60 @@
+{
+	# Keep the runtime unprivileged; EC2 publishes these as the standard HTTP/HTTPS ports.
+	http_port 8080
+	https_port 8443
+	admin off
+	persist_config off
+	skip_install_trust
+}
+
+# A hostname enables automatic public HTTPS; :8080 supports isolated HTTP container tests.
+{$SITE_ADDRESS::8080} {
+	root * /srv
+	encode gzip
+	header {
+		-Server
+		Referrer-Policy no-referrer
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+	}
+
+	# Preserve paths, caller credentials, CSRF cookies/headers, and signed webhook bytes.
+	@changes path /api/v1/changes /api/v1/changes/*
+	handle @changes {
+		header Cache-Control no-store
+		reverse_proxy {$CHANGE_API_PROXY_TARGET:change-service:8082}
+	}
+	@connector path /api/v1/organizations/* /api/v1/integrations/github/*
+	handle @connector {
+		header Cache-Control no-store
+		reverse_proxy {$CONNECTOR_API_PROXY_TARGET:connector-service:8081}
+	}
+	handle /api/projection-health {
+		header Cache-Control no-store
+		rewrite * /actuator/health/projection
+		reverse_proxy {$CHANGE_API_PROXY_TARGET:change-service:8082}
+	}
+
+	# Unknown API paths must fail, rather than returning a successful SPA document.
+	@unknownApi path /api /api/*
+	handle @unknownApi {
+		respond "Unknown API route" 404
+	}
+	handle /assets/* {
+		# Vite fingerprints asset names; missing assets still return a real 404.
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+	handle {
+		# SPA deep links and GitHub callbacks survive reloads without caching old HTML.
+		header Cache-Control no-cache
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# This liveness listener stays inside the container and works before TLS certificates exist.
+http://127.0.0.1:9090 {
+	respond /healthz "ok" 200
+	respond 404
+}

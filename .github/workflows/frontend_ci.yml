@@ -8,11 +8,13 @@ on:
       - ".github/workflows/frontend_*.yml"
       - "frontend/**"
       - "docker-compose.yaml"
+      - "deploy/**"
   push:
     paths:
       - ".github/workflows/frontend_*.yml"
       - "frontend/**"
       - "docker-compose.yaml"
+      - "deploy/**"
   # Refresh security results weekly even when application code has not changed.
   schedule:
     - cron: "17 6 * * 1"

@@ -21,6 +21,11 @@ Backend verification uses a matrix for `connector-service` and `change-service`,
 building each through the Maven reactor with its shared dependencies. Backend
 container checks start both services with PostgreSQL, Kafka, and Schema Registry. Frontend
 verification runs lint, TypeScript checks, Vitest, and the production build.
+Frontend container checks render the standalone AWS configuration with invented
+credentials, build the static and development targets, and verify SPA routes,
+auth/CSRF forwarding, signed bytes and HTTPS using disposable containers and a test
+CA. They do not deploy infrastructure or request public certificates. Changes under
+`deploy/` trigger these checks as well.
 
 Backend dependency scans first install the reactor through
 [`maven_with_retry.sh`](../scripts/maven_with_retry.sh). The CodeQL manual build

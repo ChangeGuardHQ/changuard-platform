@@ -6,7 +6,7 @@ import type { WorkspaceSession } from './WorkspaceSession'
 
 const defaultOrganization = import.meta.env.VITE_ORGANIZATION_ID || 'local'
 
-/** Local visual-test authentication is tab-scoped; production identity belongs at the gateway/BFF. */
+/** Visual-test authentication is tab-scoped; hosted tests use the same service accounts over HTTPS. */
 export function WorkspaceSessionProvider({
   children,
 }: {

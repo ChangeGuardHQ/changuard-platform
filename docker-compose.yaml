@@ -10,6 +10,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # Keep hot reload local; an unqualified Docker build produces the static deployment image.
+      target: development
     init: true
     ports:
       - "${FRONTEND_PORT:-5173}:5173"

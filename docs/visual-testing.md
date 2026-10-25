@@ -1,5 +1,9 @@
 # Live visual testing with GitHub
 
+For AWS, start with [the EC2 deployment guide](../deploy/README.md). It uses a
+temporary public-IP hostname, HTTPS and direct GitHub webhooks. The steps below
+describe the local development stack and webhook forwarding.
+
 This guide connects a real repository to the local UI. It requires your own
 GitHub App configuration; automated tests use isolated fixtures and do not register
 an App or change repository settings for you.
@@ -130,8 +134,8 @@ checking a delivery immediately.
   read API readiness alone does not prove event-processing progress.
 - **Permanent failure:** inspect quarantine and repair/replay through the recovery
   guide. Do not delete receipts or advance offsets to fabricate success.
-- **Unexpected HTML API response:** check the frontend proxy targets; a static
-  deployment needs a same-origin gateway/reverse proxy for `/api` paths.
+- **Unexpected HTML API response:** check the local proxy targets or use the
+  deployed Caddy image, which owns the same-origin `/api` routes.
 
 Use the UI's explicit error and last-updated states when assessing results. An
 empty view is distinct from an unavailable or unauthorized API.
