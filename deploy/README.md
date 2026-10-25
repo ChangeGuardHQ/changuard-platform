@@ -127,7 +127,11 @@ installation, follow the returned link, and grant access to the repository. Afte
 returning, re-enter those accounts, complete the connection and save the repository
 selection. Accounts stay in tab memory and clear when leaving for GitHub.
 
-Open **Changes**. Push a commit, open a PR and merge it. Expect a standalone
+Open **Changes**, choose **Organization** or **Single repository**, and click
+**Apply tracking scope**. Organization means the internal workspace configured above;
+Single repository uses the saved active GitHub repository name and immutable ID.
+This view is separate from the saved event-intake selections on Connections.
+Push a commit, open a PR and merge it. Expect a standalone
 `COMMITTED` change and a PR changing from `OPEN` to `MERGED` with its stored timeline.
 Only activity delivered after connection/selection is ingested. See
 [lifecycle expectations](../docs/visual-testing.md#4-exercise-the-lifecycle).

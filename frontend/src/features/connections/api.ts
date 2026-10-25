@@ -1,4 +1,8 @@
-import { apiClient } from '../../services/apiClient'
+import {
+  apiClient,
+  ClientDataError,
+  validProviderId,
+} from '../../services/apiClient'
 import type { BasicCredentials, RequestOptions } from '../../services/apiClient'
 
 // Connector numeric identifiers are decoded into exact decimal strings by the transport.
@@ -45,8 +49,28 @@ async function write<T>(
     : apiClient.put<T>(path, options)
 }
 export const githubApi = {
-  list: (organization: string, options: RequestOptions) =>
-    apiClient.get<GitHubIntegration[]>(root(organization), options),
+  list: async (organization: string, options: RequestOptions) => {
+    const items = await apiClient.get<GitHubIntegration[]>(
+      root(organization),
+      options,
+    )
+    // A misrouted connection response must not expose or select another workspace's installations.
+    if (
+      !Array.isArray(items) ||
+      items.some(
+        (item) =>
+          !item ||
+          item.organizationId !== organization ||
+          typeof item.integrationId !== 'string' ||
+          !item.integrationId ||
+          !['ACTIVE', 'DISCONNECTED', 'REVOKED'].includes(item.status),
+      )
+    )
+      throw new ClientDataError(
+        'The GitHub connection list does not match this workspace. Refresh Connections.',
+      )
+    return items
+  },
   available: (
     organization: string,
     integration: string,
@@ -88,7 +112,7 @@ export const githubApi = {
     auth: BasicCredentials,
   ) => {
     for (const id of ids) {
-      if (!/^[1-9]\d*$/.test(id) || BigInt(id) > 9223372036854775807n)
+      if (!validProviderId(id))
         throw new Error('Invalid repository identifier.')
     }
     // Write validated decimal literals directly; converting Java long identifiers through Number would round them.

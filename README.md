@@ -579,8 +579,10 @@ flowchart TB
 
 **Status: live code views and GitHub connection UI implemented for local and AWS visual testing.**
 React supplies a tab-scoped workspace, authenticated API transport, scoped Changes
-list/detail/timeline queries, and GitHub installation/repository selection. Services
-and Activity remain placeholders. The production BFF and OAuth/OIDC are planned.
+list/detail/timeline queries, and GitHub installation/repository selection.
+Tracking requires explicitly applying one internal organization or one named GitHub
+repository; saved event-intake selections and the current view are separate controls.
+Services and Activity remain placeholders. The production BFF and OAuth/OIDC are planned.
 See [AWS deployment](deploy/README.md) for the single-EC2 HTTPS stack and
 [local visual testing](docs/visual-testing.md) for App setup and expected behavior.
 

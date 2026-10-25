@@ -26,6 +26,22 @@ export class ApiError extends Error {
   }
 }
 
+/** A response outside the requested scope is unsafe to display or retry as a transient network failure. */
+export class ClientDataError extends Error {}
+
+export const retryRead = (attempt: number, error: Error) =>
+  !(error instanceof ClientDataError) &&
+  !(error instanceof ApiError && error.status < 500) &&
+  attempt < 1
+
+export const accessDenied = (error: Error | null) =>
+  error instanceof ClientDataError ||
+  (error instanceof ApiError && (error.status === 401 || error.status === 403))
+
+// Provider IDs stay decimal strings; length-check before BigInt avoids parsing unbounded input.
+export const validProviderId = (value: string) =>
+  /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n
+
 /** Preserve Java long identifiers before JSON numbers lose precision in the browser. */
 export function parseApiJson(text: string): unknown {
   return JSON.parse(

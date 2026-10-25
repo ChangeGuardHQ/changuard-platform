@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Box,
@@ -12,7 +12,12 @@ import {
 } from '@mui/material'
 import { useWorkspace } from '../../app/WorkspaceSession'
 import { ApiFailure } from '../../components/common/ApiFeedback'
-import { retryRead } from '../changes/queries'
+import {
+  accessDenied,
+  ClientDataError,
+  retryRead,
+  validProviderId,
+} from '../../services/apiClient'
 import { githubApi } from './api'
 import type { GitHubIntegration, Repository } from './api'
 
@@ -23,6 +28,7 @@ export function RepositorySelection({
   integration: GitHubIntegration
 }) {
   const { session, revision } = useWorkspace()
+  const cache = useQueryClient()
   const [draft, setDraft] = useState<Set<string> | null>(null)
   const [saved, setSaved] = useState(false)
   const query = useQuery({
@@ -47,6 +53,27 @@ export function RepositorySelection({
           options,
         ),
       ])
+      // Invalid metadata must become a visible read failure, never a destructive empty selection or a render crash.
+      if (
+        !Array.isArray(available) ||
+        !Array.isArray(selected) ||
+        [...available, ...selected].some(
+          (repo) =>
+            !repo ||
+            typeof repo.repositoryId !== 'string' ||
+            !validProviderId(repo.repositoryId) ||
+            typeof repo.fullName !== 'string' ||
+            !repo.fullName.trim() ||
+            (repo.defaultBranch != null &&
+              typeof repo.defaultBranch !== 'string'),
+        ) ||
+        selected.some(
+          (repo) => !['ACTIVE', 'DISCONNECTED'].includes(repo.status),
+        )
+      )
+        throw new ClientDataError(
+          'The repository list could not be read safely. Refresh repositories before saving.',
+        )
       return { available, selected }
     },
   })
@@ -70,6 +97,8 @@ export function RepositorySelection({
     ...unavailable,
   ]
   const blocked = [...selected].some((id) => !availableIds.has(id))
+  // An acknowledged save can retain its accepted draft after a failed verification read; that draft is not unsaved.
+  const dirty = draft !== null && !saved
   const save = useMutation({
     retry: false,
     mutationFn: async () => {
@@ -89,6 +118,10 @@ export function RepositorySelection({
       setSaved(true)
       // A failed read after a successful save must not visually restore the previous selection.
       setDraft(result.error ? new Set(accepted) : null)
+      // A saved intake change must invalidate the named repository picker, including removals.
+      await cache.invalidateQueries({
+        queryKey: ['tracking-repositories', revision, session.organization],
+      })
     },
   })
   return (
@@ -99,7 +132,7 @@ export function RepositorySelection({
       {query.error && (
         <ApiFailure error={query.error} retry={() => void query.refetch()} />
       )}
-      {query.data && (
+      {query.data && !accessDenied(query.error) && (
         <>
           {repositories.length === 0 && (
             <Alert severity="info">
@@ -157,9 +190,47 @@ export function RepositorySelection({
               </Box>
             ))}
           </Stack>
+          <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
+            <Button
+              disabled={
+                save.isPending ||
+                query.isFetching ||
+                query.isError ||
+                availableIds.size === 0
+              }
+              onClick={() => {
+                // Include current repositories without silently dropping an inaccessible saved selection.
+                setDraft(new Set([...selected, ...availableIds]))
+                setSaved(false)
+              }}
+            >
+              Select all available repositories
+            </Button>
+            <Button
+              disabled={
+                save.isPending ||
+                query.isFetching ||
+                query.isError ||
+                selected.size === 0
+              }
+              onClick={() => {
+                setDraft(new Set())
+                setSaved(false)
+              }}
+            >
+              Clear selection
+            </Button>
+          </Stack>
+          {dirty && (
+            <Alert severity="info">
+              Unsaved intake selection. Save to apply these changes.
+            </Alert>
+          )}
           <Typography variant="body2" color="text.secondary">
             {selected.size} selected. Saving replaces this installation’s
             selection. An empty selection stops intake for all its repositories.
+            Selecting all includes currently available repositories;
+            repositories created later need a new saved selection.
           </Typography>
           <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
             <Button
@@ -187,8 +258,13 @@ export function RepositorySelection({
       {save.error && <ApiFailure error={save.error} />}
       {saved && (
         <Alert severity="success">
-          Repository selection saved. New pushes and pull requests can now
-          appear on Changes.
+          Repository selection saved.{' '}
+          {selected.size === 0
+            ? 'No repositories are enabled for new activity.'
+            : `${selected.size} ${selected.size === 1 ? 'repository is' : 'repositories are'} enabled for new activity.`}
+          {query.error
+            ? ' Refresh repositories to verify the saved selection before choosing a tracking scope.'
+            : ' Choose a tracking scope on Changes to view their activity.'}
         </Alert>
       )}
     </Stack>

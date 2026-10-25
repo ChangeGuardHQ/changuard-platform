@@ -92,8 +92,13 @@ When topic auto-creation is disabled, provision the DLT using the
    username that began installation, then click **Complete connection** once.
 6. Choose **Select repositories**, select `ChangeGuardHQ/changuard-platform`, and
    click **Save repository selection**. App-level access and ChangeGuard selection
-   are both required. Note the displayed repository ID for optional list filtering.
-7. Open **Changes** and leave **Live · 5s** enabled.
+   are both required. Select one checkbox for one repository, or use **Select all
+   available repositories** for the current installation, then save. New repositories
+   created later require updating this saved intake selection.
+7. Open **Changes**, choose **Organization** or **Single repository**, and click
+   **Apply tracking scope**. A single repository is chosen by full GitHub name and ID.
+   Leave **Live · 5s** enabled. This applied view persists across list/detail navigation;
+   it does not change which repositories are enabled for event intake.
 
 If setup state expires (default ten minutes), restart installation rather than
 reusing a consumed callback. Changing the organization field cannot grant backend

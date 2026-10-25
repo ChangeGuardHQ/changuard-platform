@@ -18,6 +18,7 @@ import {
 import { NavLink, Outlet } from 'react-router-dom'
 import type { NavigationItem } from '../../types/navigation'
 import { useWorkspace } from '../../app/WorkspaceSession'
+import { useTrackingAvailability } from '../../features/changes/repositories'
 
 // Keep navigation usable on narrow windows while retaining accessible icon labels.
 const drawerWidth = { xs: 76, md: 248 }
@@ -32,7 +33,8 @@ const navigationItems: NavigationItem[] = [
 ]
 
 export function AppLayout() {
-  const { session } = useWorkspace()
+  const { session, scope } = useWorkspace()
+  const { repository } = useTrackingAvailability()
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <Drawer
@@ -150,7 +152,8 @@ export function AppLayout() {
         <Box
           component="header"
           sx={{
-            height: 76,
+            minHeight: 76,
+            py: 1.5,
             px: { xs: 3, md: 5 },
             display: 'flex',
             alignItems: 'center',
@@ -161,9 +164,21 @@ export function AppLayout() {
             boxShadow: '0 3px 16px rgba(16, 55, 102, 0.025)',
           }}
         >
-          <Typography variant="body2" color="text.secondary">
-            Organization · {session.organization}
-          </Typography>
+          {/* Keep the applied scope visible across list, detail and connection routes. */}
+          <Box
+            sx={{ minWidth: 0, overflowWrap: 'anywhere', textAlign: 'right' }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              Workspace · {session.organization}
+            </Typography>
+            <Typography variant="body2">
+              {!scope
+                ? 'Tracking scope not selected'
+                : scope.kind === 'organization'
+                  ? 'Organization history'
+                  : `Repository · ${repository?.fullName ?? scope.fullName} · ID ${scope.repositoryId}`}
+            </Typography>
+          </Box>
         </Box>
         <Box
           sx={{

@@ -4,12 +4,19 @@ import { describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/renderApp'
 import { change, jsonResponse } from '../../test/fixtures'
 
-async function connect() {
+async function connect(connector = false) {
   fireEvent.change(screen.getByLabelText('Change API password'), {
     target: { value: 'test-pass' },
   })
+  if (connector)
+    fireEvent.change(screen.getByLabelText('GitHub connector password'), {
+      target: { value: 'admin-pass' },
+    })
   await userEvent.click(screen.getByRole('button', { name: 'Apply accounts' }))
   await userEvent.click(screen.getByRole('link', { name: 'Changes' }))
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Apply tracking scope' }),
+  )
 }
 
 /** Browse real route flows with API responses at the fetch boundary; no UI-specific mock service is used. */
@@ -90,21 +97,40 @@ describe('live change workspace', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('encodes repository filters and requests the next page from the backend', async () => {
-    const fetchMock = vi.fn(async (path: string) =>
-      path.includes('projection-health')
-        ? jsonResponse({ status: 'UP' })
-        : jsonResponse({
-            items: [change],
-            page: 0,
-            size: 20,
-            totalElements: 21,
-            totalPages: 2,
-          }),
-    )
+  it('resets pagination when a named single-repository scope is applied', async () => {
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path.includes('projection-health'))
+        return jsonResponse({ status: 'UP' })
+      if (path.endsWith('/integrations/github'))
+        return jsonResponse([
+          {
+            integrationId: 'integration',
+            organizationId: 'local',
+            status: 'ACTIVE',
+          },
+        ])
+      if (
+        path.endsWith('/repositories') ||
+        path.endsWith('/available-repositories')
+      )
+        return jsonResponse([
+          {
+            repositoryId: '12345',
+            fullName: change.repositoryFullName,
+            status: 'ACTIVE',
+          },
+        ])
+      return jsonResponse({
+        items: [change],
+        page: 0,
+        size: 20,
+        totalElements: 21,
+        totalPages: 2,
+      })
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderApp('/connections')
-    await connect()
+    await connect(true)
     await screen.findByRole('link', { name: change.title! })
     await userEvent.click(
       screen.getByRole('button', { name: 'Go to next page' }),
@@ -114,16 +140,19 @@ describe('live change workspace', () => {
         fetchMock.mock.calls.some(([path]) => path.includes('page=1')),
       ).toBe(true),
     )
-    fireEvent.change(screen.getByLabelText('Repository ID'), {
-      target: { value: 'repo/a&b' },
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Single repository' }),
+    )
+    await screen.findByRole('option', { name: /ID 12345/ })
+    await userEvent.selectOptions(screen.getByLabelText('Repository'), '12345')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Apply tracking scope' }),
+    )
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
           ([path]) =>
-            path.includes('page=0') &&
-            path.includes('repositoryId=repo%2Fa%26b'),
+            path.includes('page=0') && path.includes('repositoryId=12345'),
         ),
       ).toBe(true),
     )
@@ -164,6 +193,9 @@ describe('live change workspace', () => {
       screen.getByRole('button', { name: 'Apply accounts' }),
     )
     await userEvent.click(screen.getByRole('link', { name: 'Changes' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Apply tracking scope' }),
+    )
     expect(
       await screen.findByRole('link', { name: 'Second workspace change' }),
     ).toBeInTheDocument()

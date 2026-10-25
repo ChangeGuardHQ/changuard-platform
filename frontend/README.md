@@ -64,13 +64,14 @@ file capabilities, language toolchains or dependency trees.
 | Route | Behavior |
 | --- | --- |
 | `/` | Overview and navigation into live views. |
-| `/changes` | Scoped list, repository-ID filter, 20-row pagination and optional five-second refresh. |
-| `/changes/:id` | Current projection and its persisted timeline; five-second refresh. |
+| `/changes` | Explicit Organization or Single repository scope, 20-row pagination and optional five-second refresh. |
+| `/changes/:id` | Current projection and timeline within the applied scope; five-second refresh. |
 | `/connections` | Tab-scoped API accounts, projection health, GitHub installation and repository selection. |
 | `/connections/github/callback` | Explicit completion of single-use installation state after returning from GitHub. |
 
 Empty, loading, authorization and network failures are distinct. Failed background
-reads preserve the last successful data and display the failure. Polling stops for
+reads preserve the last successful data for transient failures; revoked access and
+scope mismatches hide cached records. Polling stops for
 authentication/authorization errors. A commit stays separate from a pull request;
 the browser does not infer missing domain relationships or provider timestamps.
 
@@ -85,6 +86,27 @@ flowchart LR
 ```
 
 ## Authentication and request boundaries
+
+On **Changes**, choose and apply exactly one tracking scope before any change read:
+
+- **Organization** shows all recorded history in the configured internal ChangeGuard
+  workspace, including disconnected repositories. It is available with the change
+  reader account alone. This workspace ID is separate from the GitHub owner name.
+- **Single repository** requires a connector account to verify the saved active
+  selection. Choose the full `owner/repository` name and immutable ID. It remains
+  the active view across list/detail navigation, and every list request carries its
+  exact ID. An unavailable/revoked selection pauses the view without broadening it.
+
+Draft controls do not change the applied view until **Apply tracking scope** is
+clicked. Scope changes reset pagination; account/organization changes and reloads
+require choosing a scope again. Detail and timeline responses must match that scope.
+Saved repository choices refresh every 15 seconds, on focus, and after intake saves.
+
+**Connections** controls event intake separately: select one checkbox for one
+repository, or **Select all available repositories** for the current installation's
+accessible repositories. Save explicitly. Selecting all preserves unavailable saved
+selections for explicit resolution and does not automatically include repositories
+created later. Clearing and saving stops intake while retaining recorded history.
 
 `WorkspaceSessionProvider` keeps credentials only in memory. Navigating between
 pages preserves them; reloading or leaving for GitHub clears them. Apply the same
@@ -151,3 +173,7 @@ Vite is pinned to 8.3.5 with its matching lockfile to address the advisories aff
 8.3.2. Source dependency audits include development dependencies; runtime scans cover
 Caddy and the static image. CI logs summarize audit and Trivy findings while keeping
 their complete JSON reports as artifacts and retaining the HIGH/CRITICAL failure gate.
+
+The lockfile also pins jsdom's compatible transitive Undici dependency to 8.12.3,
+which addresses the EventSource, integrity-check and content-encoding advisories in
+8.11.2. No production dependency or audit exception is added for this test dependency.

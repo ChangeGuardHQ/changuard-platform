@@ -44,6 +44,11 @@ and [local visual testing](../visual-testing.md).
 - Local component state is reserved for transient interaction state.
 - API credentials live in the tab-scoped workspace context. Changing identity cancels
   requests and clears queries; secrets never become URL, storage, or query-key state.
+- The same context owns one explicitly applied Organization or Single repository
+  scope. Query keys include the scope, and identity changes reset it. Named repository
+  choices come from saved active connector selections, with immutable IDs preserved.
+  Failed/revoked selection checks pause repository reads; detail/timeline responses
+  are checked before rendering. Draft intake selections never implicitly change a view.
 - Installation completion and repository selection are explicit mutations with CSRF
   where required. Single-use callback completion is never polled or automatically retried.
 - API calls flow through `src/services/apiClient.ts`; feature hooks should call that boundary

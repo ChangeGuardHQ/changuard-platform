@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useIsMutating } from '@tanstack/react-query'
 import {
   Alert,
   Box,
@@ -15,6 +16,7 @@ import { useWorkspace } from '../../app/WorkspaceSession'
 /** Account secrets are user-entered runtime state and are deliberately absent from public Vite variables. */
 export function ApiAccountsForm() {
   const { session, save, forget } = useWorkspace()
+  const writes = useIsMutating()
   const [organization, setOrganization] = useState(session.organization)
   const [changeUser, setChangeUser] = useState(
     session.change?.username ?? 'changeguard',
@@ -32,6 +34,17 @@ export function ApiAccountsForm() {
   const [saving, setSaving] = useState(false)
   async function submit(event: FormEvent) {
     event.preventDefault()
+    // Whitespace-only identifiers and account names pass HTML required validation but cannot identify an account.
+    if (
+      !organization.trim() ||
+      (changePassword && !changeUser.trim()) ||
+      (connectorPassword && !connectorUser.trim())
+    ) {
+      setError(
+        'Enter a non-empty organization ID and a username for each supplied password.',
+      )
+      return
+    }
     if (changeUser.includes(':') || connectorUser.includes(':')) {
       setError('Account names cannot contain a colon.')
       return
@@ -59,8 +72,8 @@ export function ApiAccountsForm() {
     <Paper component="section" sx={{ p: 3 }}>
       <Typography variant="h2">1. Connect API accounts</Typography>
       <Typography color="text.secondary" variant="body2" sx={{ mt: 1, mb: 3 }}>
-        Use the accounts configured for your local services. Credentials stay in
-        this tab’s memory and are cleared on reload.
+        Use the accounts configured for your services. Credentials stay in this
+        tab’s memory and are cleared on reload.
       </Typography>
       <Box
         component="form"
@@ -73,7 +86,7 @@ export function ApiAccountsForm() {
             value={organization}
             onChange={(event) => setOrganization(event.target.value)}
             required
-            helperText="Use the same organization configured for GitHub ownership and change access."
+            helperText="Internal ChangeGuard workspace ID from server configuration (for example visual-test). Your GitHub owner is linked below."
             slotProps={{ htmlInput: { pattern: '.*\\S.*' } }}
           />
           <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 2 }}>
@@ -113,11 +126,18 @@ export function ApiAccountsForm() {
           </Stack>
           {error && <Alert severity="error">{error}</Alert>}
           <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
-            <Button type="submit" variant="contained" disabled={saving}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={saving || writes > 0}
+            >
               Apply accounts
             </Button>
             {(session.change || session.connector) && (
-              <Button disabled={saving} onClick={() => void forget()}>
+              <Button
+                disabled={saving || writes > 0}
+                onClick={() => void forget()}
+              >
                 Forget accounts
               </Button>
             )}

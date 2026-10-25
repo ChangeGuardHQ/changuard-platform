@@ -1,4 +1,5 @@
 import { StrictMode } from 'react'
+import type { ReactNode } from 'react'
 import { ThemeProvider } from '@mui/material'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
@@ -14,9 +15,17 @@ afterEach(() => {
 })
 
 /** Exercise real routing and account/cache lifetimes, including StrictMode callback safety. */
-export function renderApp(initialPath = '/') {
+export function renderApp(initialPath = '/', controls?: ReactNode) {
   const cache = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    // Retain data as production does; immediate collection would hide stale-page and cross-scope cache bugs.
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 300000,
+        staleTime: 30000,
+        refetchOnWindowFocus: false,
+      },
+    },
   })
   clients.push(cache)
   return {
@@ -27,6 +36,8 @@ export function renderApp(initialPath = '/') {
           <QueryClientProvider client={cache}>
             <WorkspaceSessionProvider>
               <MemoryRouter initialEntries={[initialPath]}>
+                {/* Optional test links exercise externally shared detail URLs without changing production navigation. */}
+                {controls}
                 <AppRoutes />
               </MemoryRouter>
             </WorkspaceSessionProvider>
